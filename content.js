@@ -78,6 +78,7 @@
 
   var overlay = document.createElement('div');
   overlay.className = 'pp-overlay';
+  overlay.setAttribute('aria-hidden', 'true');
   root.appendChild(overlay);
 
   var tip = document.createElement('div');
@@ -92,16 +93,16 @@
   var bar = document.createElement('div');
   bar.className = 'pp-bar pp-hidden';
   bar.innerHTML =
-    '<button class="pp-bar-btn pp-btn-comment" data-tip="Comment" data-keys="C">' + ico.chat + '</button>' +
+    '<button class="pp-bar-btn pp-btn-comment" data-tip="Comment" data-keys="C" aria-label="Comment">' + ico.chat + '</button>' +
     '<span class="pp-count pp-hidden"></span>' +
     '<div class="pp-bar-sep"></div>' +
-    '<button class="pp-bar-btn pp-btn-copy" data-tip="Copy all" data-keys="A">' + ico.copy + '</button>' +
-    '<button class="pp-bar-btn pp-btn-send" data-tip="Copy & clear" data-keys="Shift,A">' + ico.send + '</button>' +
+    '<button class="pp-bar-btn pp-btn-copy" data-tip="Copy all" data-keys="A" aria-label="Copy all">' + ico.copy + '</button>' +
+    '<button class="pp-bar-btn pp-btn-send" data-tip="Copy & clear" data-keys="Shift,A" aria-label="Copy and clear">' + ico.send + '</button>' +
     '<div class="pp-bar-sep"></div>' +
-    '<button class="pp-bar-btn pp-btn-delete" data-tip="Delete all" data-keys="X,X,X">' + ico.trash + '</button>' +
+    '<button class="pp-bar-btn pp-btn-delete" data-tip="Delete all" data-keys="X,X,X" aria-label="Delete all">' + ico.trash + '</button>' +
     '<div class="pp-bar-sep"></div>' +
-    '<button class="pp-bar-btn pp-btn-shortcuts" data-tip="Shortcuts">' + ico.question + '</button>' +
-    '<button class="pp-bar-btn pp-btn-close" data-tip="Close" data-keys="Esc">' + ico.close + '</button>';
+    '<button class="pp-bar-btn pp-btn-shortcuts" data-tip="Shortcuts" aria-label="Shortcuts">' + ico.question + '</button>' +
+    '<button class="pp-bar-btn pp-btn-close" data-tip="Close" data-keys="Esc" aria-label="Close">' + ico.close + '</button>';
   root.appendChild(bar);
 
   var barTip = document.createElement('div');
@@ -111,12 +112,15 @@
   var toggle = document.createElement('button');
   toggle.className = 'pp-toggle';
   toggle.setAttribute('data-tip', 'Feedpin');
+  toggle.setAttribute('aria-label', 'Open Feedpin');
   toggle.innerHTML = logoSvg;
   root.appendChild(toggle);
 
   /* ── shortcuts panel ──────────────────────────────────── */
   var shortcutsPanel = document.createElement('div');
   shortcutsPanel.className = 'pp-shortcuts pp-hidden';
+  shortcutsPanel.setAttribute('role', 'region');
+  shortcutsPanel.setAttribute('aria-label', 'Keyboard shortcuts');
   shortcutsPanel.innerHTML =
     '<div class="pp-sc-title">Keyboard shortcuts</div>' +
     '<div class="pp-sc-row"><span class="pp-sc-label">Comment mode</span><div class="pp-sc-keys"><kbd class="pp-key">C</kbd></div></div>' +
@@ -277,6 +281,7 @@
     var input = document.createElement('textarea');
     input.className = 'pp-pop-input';
     input.placeholder = 'Add a comment';
+    input.setAttribute('aria-label', 'Annotation comment');
     input.rows = 1;
     if (isEdit) input.value = ann.comment;
     pop.appendChild(input);
@@ -294,6 +299,7 @@
       var del = document.createElement('button');
       del.className = 'pp-pop-btn pp-pop-delete';
       del.title = 'Delete';
+      del.setAttribute('aria-label', 'Delete');
       del.innerHTML = ico.trashSm;
       del.addEventListener('click', function (e) {
         e.stopPropagation();
@@ -307,6 +313,7 @@
     var submit = document.createElement('button');
     submit.className = 'pp-pop-btn pp-pop-submit';
     submit.title = isEdit ? 'Save' : 'Add';
+    submit.setAttribute('aria-label', isEdit ? 'Save' : 'Add');
     submit.innerHTML = ico.arrowUp;
     submit.disabled = true;
 
@@ -426,12 +433,22 @@
   function createPin(ann) {
     var pin = document.createElement('div');
     pin.className = 'pp-pin';
+    pin.setAttribute('role', 'button');
+    pin.setAttribute('tabindex', '0');
+    pin.setAttribute('aria-label', 'Annotation ' + ann.id);
     if (ann.id >= 100) pin.classList.add('pp-pin-xs');
     else if (ann.id >= 10) pin.classList.add('pp-pin-sm');
     pin.textContent = ann.id;
     pinLayer.appendChild(pin);
     ann.pinEl = pin;
     positionPin(ann);
+
+    pin.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        pin.click();
+      }
+    });
 
     pin.addEventListener('click', function (e) {
       e.stopPropagation();
@@ -499,6 +516,7 @@
     btnDelete.classList.add('pp-undo-btn');
     btnDelete.setAttribute('data-tip', 'Undo');
     btnDelete.setAttribute('data-keys', 'Z');
+    btnDelete.setAttribute('aria-label', 'Undo');
     clearTimeout(undoTimer);
     undoTimer = setTimeout(clearUndoState, 5000);
   }
@@ -511,6 +529,7 @@
     btnDelete.classList.remove('pp-undo-btn');
     btnDelete.setAttribute('data-tip', 'Delete all');
     btnDelete.setAttribute('data-keys', 'X,X,X');
+    btnDelete.setAttribute('aria-label', 'Delete all');
   }
 
   function undo() {
