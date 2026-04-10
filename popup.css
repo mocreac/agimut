@@ -155,14 +155,38 @@ body {
 
 /* ── footer ──────────────────────────────────────────── */
 .footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   padding: 6px 14px 10px;
   border-top: 1px solid #3a3a3a;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
 }
 
+.made-by {
+  color: #555;
+  font-size: 10px;
+}
+
+.made-by a {
+  color: #777;
+  text-decoration: none;
+}
+
+.made-by a:hover {
+  color: #aaa;
+}
+
 .version {
   color: #555;
   font-size: 10px;
+}
+
+/* ── hint text ──────────────────────────────────────── */
+.hint {
+  font-size: 11px;
+  color: #888;
+  margin-top: 2px;
 }
 
 /* ── unavailable state ───────────────────────────────── */

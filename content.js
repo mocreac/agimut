@@ -456,17 +456,36 @@
     updateCount();
   }
 
+  /* ── element snapshots for export ────────────────────────── */
+  function getOpeningTag(el) {
+    if (!el.isConnected) return '';
+    var html = el.cloneNode(false).outerHTML;
+    var tag = el.tagName.toLowerCase();
+    var closeTag = '</' + tag + '>';
+    if (html.endsWith(closeTag)) html = html.slice(0, -closeTag.length);
+    return html.length > 200 ? html.slice(0, 200) + '...' : html;
+  }
+
+  function getTextPreview(el) {
+    var text = (el.textContent || '').trim();
+    if (!text) return '';
+    return text.length > 50 ? text.slice(0, 50) + '\u2026' : text;
+  }
+
   /* ── copy ──────────────────────────────────────────────── */
   function formatMarkdown() {
     var lines = [
-      '# Design Review - ' + document.title,
-      '**URL:** ' + location.href, '',
+      'Design Review - ' + document.title,
+      'URL: ' + location.href, '',
     ];
-    annotations.forEach(function (ann, i) {
-      lines.push('## ' + ann.id);
-      lines.push('**Element:** `' + ann.selector + '` (' + ann.type + ')');
-      lines.push(ann.comment);
-      if (i < annotations.length - 1) lines.push('', '---', '');
+    annotations.forEach(function (ann) {
+      lines.push(ann.id + '. Element: ' + ann.selector + ' (' + ann.type + ')');
+      var tag = getOpeningTag(ann.el);
+      if (tag) lines.push('   HTML: ' + tag);
+      var text = getTextPreview(ann.el);
+      if (text) lines.push('   Text: "' + text + '"');
+      lines.push('   Comment: ' + ann.comment);
+      lines.push('');
     });
     return lines.join('\n');
   }
@@ -764,10 +783,18 @@
   btnClose.addEventListener('click', function (e) { e.stopPropagation(); deactivate(); });
   toggle.addEventListener('click', function (e) { e.stopPropagation(); activate(); });
 
+  /* ── dev-only helper ─────────────────────────────────────── */
+  function isDevHost() {
+    var h = location.hostname;
+    return h === 'localhost' || h === '127.0.0.1' || h === '0.0.0.0' ||
+           h === '[::1]' || h.endsWith('.local') || h.endsWith('.localhost');
+  }
+
   /* ── site disable/enable ────────────────────────────────── */
-  chrome.storage.local.get('disabledHosts', function (data) {
+  chrome.storage.local.get(['disabledHosts', 'devOnly'], function (data) {
     var list = data.disabledHosts || [];
-    if (list.indexOf(location.hostname) !== -1) {
+    var devOnly = !!data.devOnly;
+    if (list.indexOf(location.hostname) !== -1 || (devOnly && !isDevHost())) {
       toggle.classList.add('pp-hidden');
     }
   });
@@ -779,6 +806,19 @@
       } else {
         if (active) deactivate();
         toggle.classList.add('pp-hidden');
+      }
+    }
+    if (msg.type === 'feedpin-devonly') {
+      if (msg.devOnly && !isDevHost()) {
+        if (active) deactivate();
+        toggle.classList.add('pp-hidden');
+      } else {
+        chrome.storage.local.get('disabledHosts', function (data) {
+          var list = data.disabledHosts || [];
+          if (list.indexOf(location.hostname) === -1) {
+            toggle.classList.remove('pp-hidden');
+          }
+        });
       }
     }
   });
