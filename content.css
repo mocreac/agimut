@@ -3,6 +3,7 @@
   --pp-accent: #d4620e;
   --pp-accent-hover: #b8540c;
   --pp-accent-glow: rgba(212, 98, 14, 0.25);
+  --pp-accent-gradient: linear-gradient(180deg, #e07020 0%, var(--pp-accent) 100%);
   --pp-bg: #232323;
   --pp-bg-light: #2e2e2e;
   --pp-bg-raised: #292929;
@@ -119,7 +120,7 @@ html.pp-commenting body * {
   width: 26px;
   height: 26px;
   border-radius: 50%;
-  background: linear-gradient(180deg, #e07020 0%, var(--pp-accent) 100%);
+  background: var(--pp-accent-gradient);
   color: #fff;
   font-size: 11px;
   font-weight: 700;
@@ -200,7 +201,7 @@ html.pp-commenting body * {
 }
 
 #pinpoint-root .pp-bar-btn.pp-active-btn {
-  background: linear-gradient(180deg, #e07020 0%, var(--pp-accent) 100%);
+  background: var(--pp-accent-gradient);
   color: #fff;
   box-shadow:
     0 1px 4px rgba(212, 98, 14, 0.35),
@@ -345,7 +346,7 @@ html.pp-commenting body * {
 }
 
 #pinpoint-root .pp-pop-submit.pp-submit-on {
-  background: linear-gradient(180deg, #e07020 0%, var(--pp-accent) 100%);
+  background: var(--pp-accent-gradient);
   color: #fff;
   box-shadow:
     0 1px 4px rgba(212, 98, 14, 0.3),
