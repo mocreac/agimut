@@ -91,21 +91,25 @@
   var bar = document.createElement('div');
   bar.className = 'pp-bar pp-hidden';
   bar.innerHTML =
-    '<button class="pp-bar-btn pp-btn-comment" title="Comment \u00b7 C">' + ico.chat + '</button>' +
+    '<button class="pp-bar-btn pp-btn-comment" data-tip="Comment" data-keys="C">' + ico.chat + '</button>' +
     '<span class="pp-count pp-hidden"></span>' +
     '<div class="pp-bar-sep"></div>' +
-    '<button class="pp-bar-btn pp-btn-copy" title="Copy all \u00b7 A">' + ico.copy + '</button>' +
-    '<button class="pp-bar-btn pp-btn-send" title="Copy & clear \u00b7 Shift+A">' + ico.send + '</button>' +
+    '<button class="pp-bar-btn pp-btn-copy" data-tip="Copy all" data-keys="A">' + ico.copy + '</button>' +
+    '<button class="pp-bar-btn pp-btn-send" data-tip="Copy & clear" data-keys="Shift,A">' + ico.send + '</button>' +
     '<div class="pp-bar-sep"></div>' +
-    '<button class="pp-bar-btn pp-btn-delete" title="Delete all \u00b7 XXX">' + ico.trash + '</button>' +
+    '<button class="pp-bar-btn pp-btn-delete" data-tip="Delete all" data-keys="X,X,X">' + ico.trash + '</button>' +
     '<div class="pp-bar-sep"></div>' +
-    '<button class="pp-bar-btn pp-btn-shortcuts" title="Shortcuts">' + ico.question + '</button>' +
-    '<button class="pp-bar-btn pp-btn-close" title="Close \u00b7 Esc">' + ico.close + '</button>';
+    '<button class="pp-bar-btn pp-btn-shortcuts" data-tip="Shortcuts">' + ico.question + '</button>' +
+    '<button class="pp-bar-btn pp-btn-close" data-tip="Close" data-keys="Esc">' + ico.close + '</button>';
   root.appendChild(bar);
+
+  var barTip = document.createElement('div');
+  barTip.className = 'pp-bar-tip';
+  root.appendChild(barTip);
 
   var toggle = document.createElement('button');
   toggle.className = 'pp-toggle';
-  toggle.title = 'Feedpin';
+  toggle.setAttribute('data-tip', 'Feedpin');
   toggle.innerHTML = logoSvg;
   root.appendChild(toggle);
 
@@ -441,7 +445,8 @@
     };
     btnDelete.innerHTML = ico.undo;
     btnDelete.classList.add('pp-undo-btn');
-    btnDelete.title = 'Undo \u00b7 Z';
+    btnDelete.setAttribute('data-tip', 'Undo');
+    btnDelete.setAttribute('data-keys', 'Z');
     clearTimeout(undoTimer);
     undoTimer = setTimeout(clearUndoState, 5000);
   }
@@ -452,7 +457,8 @@
     undoTimer = null;
     btnDelete.innerHTML = ico.trash;
     btnDelete.classList.remove('pp-undo-btn');
-    btnDelete.title = 'Delete all \u00b7 XXX';
+    btnDelete.setAttribute('data-tip', 'Delete all');
+    btnDelete.setAttribute('data-keys', 'X,X,X');
   }
 
   function undo() {
@@ -824,6 +830,51 @@
   btnShortcuts.addEventListener('click', function (e) { e.stopPropagation(); toggleShortcuts(); });
   btnClose.addEventListener('click', function (e) { e.stopPropagation(); deactivate(); });
   toggle.addEventListener('click', function (e) { e.stopPropagation(); activate(); });
+
+  /* ── custom tooltips ──────────────────────────────────── */
+  var barTipTimer = null;
+
+  function showBarTip(btn) {
+    var label = btn.getAttribute('data-tip');
+    if (!label) return;
+    var keys = btn.getAttribute('data-keys');
+    var html = '<span class="pp-bar-tip-label">' + label + '</span>';
+    if (keys) {
+      html += '<div class="pp-bar-tip-keys">';
+      keys.split(',').forEach(function (k) {
+        html += '<kbd class="pp-key">' + k + '</kbd>';
+      });
+      html += '</div>';
+    }
+    barTip.innerHTML = html;
+    barTip.classList.add('pp-on');
+    var br = btn.getBoundingClientRect();
+    var tw = barTip.offsetWidth;
+    var th = barTip.offsetHeight;
+    barTip.style.left = (br.left + br.width / 2 - tw / 2) + 'px';
+    barTip.style.top = (br.top - th - 8) + 'px';
+  }
+
+  function hideBarTip() {
+    clearTimeout(barTipTimer);
+    barTipTimer = null;
+    barTip.classList.remove('pp-on');
+  }
+
+  root.addEventListener('mouseenter', function (e) {
+    var btn = e.target.closest('[data-tip]');
+    if (!btn || !root.contains(btn)) return;
+    clearTimeout(barTipTimer);
+    barTipTimer = setTimeout(function () { showBarTip(btn); }, 400);
+  }, true);
+
+  root.addEventListener('mouseleave', function (e) {
+    var btn = e.target.closest('[data-tip]');
+    if (!btn || !root.contains(btn)) return;
+    hideBarTip();
+  }, true);
+
+  root.addEventListener('click', function () { hideBarTip(); }, true);
 
   /* ── dev-only helper ─────────────────────────────────────── */
   function isDevHost() {

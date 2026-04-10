@@ -1,5 +1,7 @@
 # Feedpin
 
+![Feedpin](banner.png)
+
 Annotate any live web page. Copy the output. Paste it into Claude Code, Codex, or whatever agent you use. It knows exactly what to fix.
 
 Feedpin is a Chrome extension that lets you pin comments on UI elements and export them as structured text with CSS selectors, HTML tags, and page context. Built for teams that use AI coding agents in their review workflow.

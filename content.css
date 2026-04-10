@@ -405,6 +405,49 @@ html.pp-commenting body * {
   animation: pp-shake 300ms ease;
 }
 
+/* ── toolbar tooltip ─────────────────────────────────── */
+#pinpoint-root .pp-bar-tip {
+  position: fixed;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--pp-bg);
+  border: 1px solid var(--pp-border);
+  padding: 6px 10px;
+  border-radius: 10px;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 2147483647;
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity 120ms, transform 120ms;
+  box-shadow: var(--pp-shadow);
+}
+
+#pinpoint-root .pp-bar-tip.pp-on {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+#pinpoint-root .pp-bar-tip-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--pp-text);
+}
+
+#pinpoint-root .pp-bar-tip-keys {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+#pinpoint-root .pp-bar-tip .pp-key {
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  font-size: 11px;
+}
+
 /* ── shortcuts panel ────────────────────────────────── */
 #pinpoint-root .pp-shortcuts {
   position: fixed;
