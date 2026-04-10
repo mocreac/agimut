@@ -10,6 +10,7 @@
   var popover = null;
   var popoverTarget = null;
   var editingAnn = null;
+  var morphTimer = null;
 
   /* ── undo state ────────────────────────────────────────── */
   var undoData = null;   // { items: [...], nextId }
@@ -68,7 +69,7 @@
     question: ph(P.question),
   };
 
-  var logoSvg = '<svg width="22" height="18" viewBox="0 0 319 260" fill="currentColor"><path d="M112.506 10.5C112.506 4.70102 117.207 8.24649e-06 123.006 0C128.805 0 133.506 4.70101 133.506 10.5V187.303L190.288 51.8965C197.377 34.992 213.917 23.9922 232.248 23.9922H308.132C313.931 23.9922 318.632 28.6932 318.632 34.4922C318.632 40.2911 313.931 44.9922 308.132 44.9922H232.248C222.377 44.9922 213.471 50.9152 209.654 60.0176L126.168 259.104L2.58373 117.271C-1.22584 112.898 -0.769813 106.267 3.60229 102.457C7.97441 98.6475 14.6062 99.1035 18.4158 103.476L112.506 211.459V10.5Z"/></svg>';
+  var logoSvg = '<svg width="22" height="17" viewBox="83 68 378 289" fill="none" stroke="currentColor" stroke-width="40" stroke-linecap="round" stroke-linejoin="round"><path d="M113.279 198.073L225.785 327.192V98.2M225.785 327.192L331.751 122.192H430.911"/></svg>';
 
   /* ── DOM scaffolding ───────────────────────────────────── */
   var root = document.createElement('div');
@@ -138,8 +139,39 @@
   /* ── activate / deactivate ─────────────────────────────── */
   function activate() {
     active = true;
+    clearTimeout(morphTimer);
     toggle.classList.add('pp-hidden');
+
+    // Measure natural bar width
+    bar.style.visibility = 'hidden';
+    bar.style.transition = 'none';
+    bar.style.width = '';
+    bar.style.borderRadius = '';
+    bar.style.overflow = '';
     bar.classList.remove('pp-hidden');
+    var fullWidth = bar.offsetWidth;
+
+    // Collapse to toggle size
+    bar.style.width = '46px';
+    bar.style.borderRadius = '50%';
+    bar.style.overflow = 'hidden';
+    void bar.offsetWidth;
+    bar.style.visibility = '';
+
+    // Animate expansion
+    bar.style.transition = 'width 300ms cubic-bezier(0.25, 1, 0.5, 1), border-radius 300ms cubic-bezier(0.25, 1, 0.5, 1)';
+    requestAnimationFrame(function () {
+      bar.style.width = fullWidth + 'px';
+      bar.style.borderRadius = '';
+    });
+
+    morphTimer = setTimeout(function () {
+      bar.style.transition = '';
+      bar.style.width = '';
+      bar.style.borderRadius = '';
+      bar.style.overflow = '';
+    }, 320);
+
     pinLayer.classList.remove('pp-hidden');
     startCommenting();
   }
@@ -150,9 +182,29 @@
     hidePopover();
     hideOverlay();
     hideShortcuts();
+    hideBarTip();
     clearUndoState();
-    toggle.classList.remove('pp-hidden');
-    bar.classList.add('pp-hidden');
+    clearTimeout(morphTimer);
+
+    // Capture width, collapse to toggle size
+    var curWidth = bar.offsetWidth;
+    bar.style.width = curWidth + 'px';
+    bar.style.overflow = 'hidden';
+    void bar.offsetWidth;
+
+    bar.style.transition = 'width 250ms cubic-bezier(0.5, 0, 0.75, 0), border-radius 250ms cubic-bezier(0.5, 0, 0.75, 0)';
+    bar.style.width = '46px';
+    bar.style.borderRadius = '50%';
+
+    morphTimer = setTimeout(function () {
+      bar.style.transition = '';
+      bar.style.width = '';
+      bar.style.borderRadius = '';
+      bar.style.overflow = '';
+      bar.classList.add('pp-hidden');
+      toggle.classList.remove('pp-hidden');
+    }, 270);
+
     pinLayer.classList.add('pp-hidden');
   }
 
@@ -851,7 +903,7 @@
     var br = btn.getBoundingClientRect();
     var tw = barTip.offsetWidth;
     var th = barTip.offsetHeight;
-    barTip.style.left = (br.left + br.width / 2 - tw / 2) + 'px';
+    barTip.style.left = Math.max(8, br.left + br.width / 2 - tw / 2) + 'px';
     barTip.style.top = (br.top - th - 8) + 'px';
   }
 
