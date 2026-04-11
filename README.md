@@ -93,15 +93,6 @@ The in-page config button (sliders icon) opens a settings panel with:
 
 Click the same element multiple times to add multiple comments. All annotations on one element open together in the popover, each with its own numbered badge. Deleting any annotation renumbers the rest sequentially.
 
-## Works everywhere
-
-- Any HTTP/HTTPS page, any codebase
-- Single-page apps (detects client-side navigation)
-- Annotations persist per page in localStorage
-- Highlight follows the cursor during scroll
-- CSS selector builder filters out generated class names (CSS-in-JS, Tailwind hashes, etc.)
-- Pin colors auto-adapt to page backgrounds for visibility
-- Pins stay visible at viewport edges (clamped positioning)
 
 ## License
 
