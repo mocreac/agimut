@@ -2,9 +2,9 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## What is Feedpin
+## What is Agimut
 
-Feedpin is a Chrome extension (Manifest V3) for adding design review annotations to any web page. Users hover over elements, click to add comments, and export annotations as markdown. No build step — the extension loads `content.js` and `content.css` directly as content scripts on all HTTP/HTTPS pages.
+Agimut is a Chrome extension (Manifest V3) for adding design review annotations to any web page. Users hover over elements, click to add comments, and export annotations as markdown. No build step — the extension loads `content.js` and `content.css` directly as content scripts on all HTTP/HTTPS pages.
 
 ## Loading for development
 
@@ -22,7 +22,7 @@ There is no build, bundler, or package manager. Edit files and reload the extens
 - `content.css` — all UI styles, scoped under `#pinpoint-root` to avoid host page conflicts
 - `logo.svg` — extension logo
 
-**Internal naming:** The DOM/CSS namespace is `pinpoint` / `pp-` (the original project name). The extension name facing users is "Feedpin".
+**Internal naming:** The DOM/CSS namespace is `pinpoint` / `pp-` (the original project name). The extension name facing users is "Agimut".
 
 **content.js structure (single IIFE):**
 - State variables at top (`active`, `commenting`, `annotations`, etc.)

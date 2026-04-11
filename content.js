@@ -115,8 +115,8 @@
 
   var toggle = document.createElement('button');
   toggle.className = 'pp-toggle';
-  toggle.setAttribute('data-tip', 'Feedpin');
-  toggle.setAttribute('aria-label', 'Open Feedpin');
+  toggle.setAttribute('data-tip', 'Agimut');
+  toggle.setAttribute('aria-label', 'Open Agimut');
   toggle.innerHTML = logoSvg;
   root.appendChild(toggle);
 
@@ -1364,7 +1364,7 @@
   });
 
   chrome.runtime.onMessage.addListener(function (msg) {
-    if (msg.type === 'feedpin-toggle') {
+    if (msg.type === 'agimut-toggle') {
       if (msg.enabled) {
         toggle.classList.remove('pp-hidden');
       } else {
@@ -1372,7 +1372,7 @@
         toggle.classList.add('pp-hidden');
       }
     }
-    if (msg.type === 'feedpin-devonly') {
+    if (msg.type === 'agimut-devonly') {
       if (msg.devOnly && !isDevHost()) {
         if (active) deactivate();
         toggle.classList.add('pp-hidden');

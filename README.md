@@ -1,10 +1,10 @@
-# Feedpin
+# Agimut
 
-![Feedpin](banner.png)
+![Agimut](banner.png)
 
 Annotate any live web page. Copy the output. Paste it into Claude Code, Codex, or whatever agent you use. It knows exactly what to fix.
 
-Feedpin is a Chrome extension that lets you pin comments on UI elements and export them as structured text with CSS selectors, HTML tags, and page context. Built for teams that use AI coding agents in their review workflow.
+Agimut is a Chrome extension that lets you pin comments on UI elements and export them as structured text with CSS selectors, HTML tags, and page context. Built for teams that use AI coding agents in their review workflow.
 
 ## Install
 
@@ -19,7 +19,7 @@ Chrome Web Store listing coming soon.
 
 ## How it works
 
-1. Click the Feedpin icon to activate
+1. Click the Agimut icon to activate
 2. Hover over any element to see it highlighted with its element type
 3. Click to pin a comment
 4. Hit **A** to copy all annotations
@@ -79,10 +79,10 @@ Pins automatically adapt to the background behind them. On light backgrounds the
 
 ## Extension menu
 
-Right-click the Feedpin icon or click it to open the popup:
+Right-click the Agimut icon or click it to open the popup:
 
-- **Enabled** toggle to disable Feedpin on the current site
-- **Dev only** mode to restrict Feedpin to localhost, 127.0.0.1, and .local domains
+- **Enabled** toggle to disable Agimut on the current site
+- **Dev only** mode to restrict Agimut to localhost, 127.0.0.1, and .local domains
 
 The in-page config button (sliders icon) opens a settings panel with:
 

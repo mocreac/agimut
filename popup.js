@@ -61,7 +61,7 @@
         chrome.tabs.query({ active: true, currentWindow: true }, function (tabs) {
           if (tabs[0]) {
             chrome.tabs.sendMessage(tabs[0].id, {
-              type: 'feedpin-toggle',
+              type: 'agimut-toggle',
               enabled: enabled,
             }).catch(function () { /* content script not loaded */ });
           }
@@ -76,7 +76,7 @@
       chrome.tabs.query({ active: true, currentWindow: true }, function (tabs) {
         if (tabs[0]) {
           chrome.tabs.sendMessage(tabs[0].id, {
-            type: 'feedpin-devonly',
+            type: 'agimut-devonly',
             devOnly: devOnly,
           }).catch(function () { /* content script not loaded */ });
         }
