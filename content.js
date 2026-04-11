@@ -569,9 +569,23 @@
   }
 
   /* ── element snapshots for export ────────────────────────── */
-  function getOpeningTag(el) {
+  var KEEP_ATTRS = /^(id|class|href|src|alt|name|type|role|aria-label|placeholder|action|method|for|value|target|rel)$/;
+
+  function getCleanTag(el) {
     if (!el.isConnected) return '';
-    var html = el.cloneNode(false).outerHTML;
+    var clone = el.cloneNode(false);
+    var attrs = Array.from(clone.attributes);
+    for (var i = 0; i < attrs.length; i++) {
+      var a = attrs[i];
+      if (!KEEP_ATTRS.test(a.name)) { clone.removeAttribute(a.name); continue; }
+      if (a.name === 'class') {
+        var clean = a.value.trim().split(/\s+/).filter(function (c) {
+          return c && !isGeneratedClass(c);
+        }).join(' ');
+        if (clean) clone.setAttribute('class', clean); else clone.removeAttribute('class');
+      }
+    }
+    var html = clone.outerHTML;
     var tag = el.tagName.toLowerCase();
     var closeTag = '</' + tag + '>';
     if (html.endsWith(closeTag)) html = html.slice(0, -closeTag.length);
@@ -581,7 +595,20 @@
   function getTextPreview(el) {
     var text = (el.textContent || '').trim();
     if (!text) return '';
-    return text.length > 50 ? text.slice(0, 50) + '\u2026' : text;
+    return text.length > 80 ? text.slice(0, 80) + '\u2026' : text;
+  }
+
+  var SEMANTIC_TAGS = { HEADER:1, NAV:1, MAIN:1, ASIDE:1, FOOTER:1, SECTION:1, ARTICLE:1, FORM:1 };
+
+  function getAncestorTrail(el) {
+    var parts = [];
+    var cur = el.parentElement;
+    while (cur && cur !== document.body && cur !== document.documentElement) {
+      if (cur.id && !/\s/.test(cur.id)) { parts.unshift('#' + cur.id); break; }
+      if (SEMANTIC_TAGS[cur.tagName]) parts.unshift(cur.tagName.toLowerCase());
+      cur = cur.parentElement;
+    }
+    return parts.length ? parts.join(' > ') : '';
   }
 
   /* ── copy ──────────────────────────────────────────────── */
@@ -591,8 +618,10 @@
       'URL: ' + location.href, '',
     ];
     annotations.forEach(function (ann) {
-      lines.push(ann.id + '. Element: ' + ann.selector + ' (' + ann.type + ')');
-      var tag = getOpeningTag(ann.el);
+      lines.push(ann.id + '. [' + ann.type + '] ' + ann.selector);
+      var trail = getAncestorTrail(ann.el);
+      if (trail) lines.push('   In: ' + trail);
+      var tag = getCleanTag(ann.el);
       if (tag) lines.push('   HTML: ' + tag);
       var text = getTextPreview(ann.el);
       if (text) lines.push('   Text: "' + text + '"');
