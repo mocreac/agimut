@@ -17,6 +17,20 @@ Agimut is a Chrome extension that lets you pin comments on UI elements and expor
 3. Enable **Developer mode**
 4. Click **Load unpacked** and select the repo directory
 
+
+## Why??
+
+Instead of describing UI issues in words and hoping the agent finds the right element, you annotate it directly and the export bridges the gap between what you see in the browser and what the agent sees in your code.
+
+Agimut is designed for AI-assisted workflows. Tools like Claude Code, Cursor, and Codex can read the structured output and immediately understand what you're pointing at. Each annotation gives them:
+
+- **CSS selectors** that map directly to elements in your source code
+- **Rendered HTML with classes** that work across any framework — Tailwind, CSS modules, styled-components
+- **Ancestor trail** showing where the element sits in the page structure
+- **Viewport size** so the agent knows which breakpoint you were reviewing at
+- **Your comments** explaining what needs to change and why
+
+
 ## How it works
 
 1. Click the Agimut icon to activate
