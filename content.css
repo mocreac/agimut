@@ -79,11 +79,11 @@ html.pp-commenting body * {
 /* ── element-type tooltip ────────────────────────────── */
 #pinpoint-root .pp-tip {
   position: fixed;
-  background: var(--pp-bg);
+  background: linear-gradient(180deg, rgba(42, 42, 42, 0.96) 0%, rgba(30, 30, 30, 0.96) 100%);
   border: 1px solid var(--pp-border);
   color: var(--pp-text-dim);
-  padding: 3px 9px;
-  border-radius: 6px;
+  padding: 5px 12px;
+  border-radius: 9999px;
   font-size: 11.5px;
   white-space: nowrap;
   max-width: 280px;
@@ -93,7 +93,9 @@ html.pp-commenting body * {
   z-index: 2147483642;
   opacity: 0;
   transition: opacity 100ms;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--pp-shadow), inset 0 1px 0 rgba(255,255,255,0.05);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
 }
 
 #pinpoint-root .pp-tip.pp-on {
@@ -269,6 +271,13 @@ html.pp-commenting body * {
   text-align: center;
   line-height: 36px;
   flex-shrink: 0;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: background 150ms;
+}
+
+#pinpoint-root .pp-count:hover {
+  background: var(--pp-bg-light);
 }
 
 /* ── toggle button (visible when bar hidden) ─────────── */
@@ -292,6 +301,7 @@ html.pp-commenting body * {
   transition: background 150ms, color 150ms, transform 150ms;
   pointer-events: auto;
   outline: none;
+  overflow: visible;
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
 }
@@ -299,6 +309,37 @@ html.pp-commenting body * {
 #pinpoint-root .pp-toggle:hover {
   color: var(--pp-accent);
   transform: scale(1.06);
+}
+
+/* ── toggle badge ────────────────────────────────────── */
+#pinpoint-root .pp-toggle-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--pp-accent-gradient);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  box-shadow: 0 1px 4px rgba(212, 98, 14, 0.4);
+  line-height: 1;
+}
+
+@keyframes pp-badge-pop {
+  0%   { transform: scale(0.5); }
+  70%  { transform: scale(1.15); }
+  100% { transform: scale(1); }
+}
+
+#pinpoint-root .pp-toggle-badge.pp-badge-pop {
+  animation: pp-badge-pop 250ms cubic-bezier(0.25, 1, 0.5, 1);
 }
 
 /* ── popover (#15 — max-width, #16 — backdrop blur) ──── */
@@ -487,17 +528,19 @@ html.pp-commenting body * {
   display: flex;
   align-items: center;
   gap: 10px;
-  background: var(--pp-bg);
+  background: linear-gradient(180deg, rgba(42, 42, 42, 0.96) 0%, rgba(30, 30, 30, 0.96) 100%);
   border: 1px solid var(--pp-border);
-  padding: 6px 10px;
-  border-radius: 10px;
+  padding: 6px 12px;
+  border-radius: 9999px;
   white-space: nowrap;
   pointer-events: none;
   z-index: 2147483647;
   opacity: 0;
   transform: translateY(4px);
   transition: opacity 120ms, transform 120ms;
-  box-shadow: var(--pp-shadow);
+  box-shadow: var(--pp-shadow), inset 0 1px 0 rgba(255,255,255,0.05);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
 }
 
 #pinpoint-root .pp-bar-tip.pp-on {
@@ -668,4 +711,181 @@ html.pp-commenting body * {
 #pinpoint-root .pp-btn-shortcuts.pp-sc-open {
   background: var(--pp-bg-light);
   color: var(--pp-text);
+}
+
+/* ── toast notification ─────────────────────────────── */
+#pinpoint-root .pp-toast {
+  position: fixed;
+  bottom: 76px;
+  left: 20px;
+  background: linear-gradient(180deg, rgba(42, 42, 42, 0.96) 0%, rgba(30, 30, 30, 0.96) 100%);
+  border: 1px solid var(--pp-border);
+  border-radius: 9999px;
+  padding: 9px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--pp-text);
+  z-index: 2147483647;
+  pointer-events: none;
+  box-shadow: var(--pp-shadow), inset 0 1px 0 rgba(255,255,255,0.05);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  white-space: nowrap;
+}
+
+@keyframes pp-toast-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes pp-toast-out {
+  from { opacity: 1; transform: translateY(0); }
+  to   { opacity: 0; transform: translateY(8px); }
+}
+
+#pinpoint-root .pp-toast.pp-toast-in {
+  animation: pp-toast-in 220ms cubic-bezier(0.25, 1, 0.5, 1) forwards;
+}
+
+#pinpoint-root .pp-toast.pp-toast-out {
+  animation: pp-toast-out 280ms cubic-bezier(0.5, 0, 0.75, 0) forwards;
+}
+
+/* ── orphaned pins ───────────────────────────────────── */
+#pinpoint-root .pp-pin.pp-pin-orphaned {
+  background: linear-gradient(180deg, #555 0%, #444 100%);
+  opacity: 0.7;
+  width: 22px;
+  height: 22px;
+  font-size: 9px;
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.15),
+    inset 0 1px 0 rgba(255,255,255,0.08);
+}
+
+#pinpoint-root .pp-pin.pp-pin-orphaned:hover {
+  opacity: 0.9;
+  transform: scale(1.1);
+}
+
+#pinpoint-root .pp-orphan-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--pp-border);
+  margin-bottom: 8px;
+}
+
+#pinpoint-root .pp-badge-orphan {
+  background: linear-gradient(180deg, #666 0%, #555 100%) !important;
+}
+
+#pinpoint-root .pp-orphan-label {
+  font-size: 12px;
+  color: var(--pp-text-dim);
+  flex: 1;
+}
+
+#pinpoint-root .pp-orphan-header .pp-pop-delete {
+  flex-shrink: 0;
+}
+
+#pinpoint-root .pp-orphan-comment {
+  font-size: 13px;
+  color: var(--pp-text);
+  margin-bottom: 8px;
+  line-height: 1.5;
+}
+
+#pinpoint-root .pp-orphan-selector {
+  font-size: 11px;
+  color: var(--pp-text-dim);
+  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+  word-break: break-all;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 6px;
+  padding: 6px 8px;
+  line-height: 1.4;
+}
+
+/* ── floating annotation navigator ───────────────────── */
+#pinpoint-root .pp-nav-pill {
+  position: fixed;
+  bottom: 76px;
+  left: 20px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  background: linear-gradient(180deg, rgba(42, 42, 42, 0.96) 0%, rgba(30, 30, 30, 0.96) 100%);
+  border: 1px solid var(--pp-border);
+  border-radius: 9999px;
+  padding: 4px;
+  z-index: 2147483646;
+  box-shadow: var(--pp-shadow), inset 0 1px 0 rgba(255,255,255,0.05);
+  pointer-events: auto;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+@keyframes pp-pill-in {
+  from { opacity: 0; transform: scale(0.9) translateY(6px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+@keyframes pp-pill-out {
+  from { opacity: 1; transform: scale(1) translateY(0); }
+  to   { opacity: 0; transform: scale(0.9) translateY(6px); }
+}
+
+#pinpoint-root .pp-nav-pill.pp-pill-in {
+  animation: pp-pill-in 150ms cubic-bezier(0.25, 1, 0.5, 1) forwards;
+}
+
+#pinpoint-root .pp-nav-pill.pp-pill-out {
+  animation: pp-pill-out 200ms cubic-bezier(0.5, 0, 0.75, 0) forwards;
+}
+
+#pinpoint-root .pp-nav-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--pp-text-dim);
+  cursor: pointer;
+  transition: background 150ms, color 150ms;
+  outline: none;
+  flex-shrink: 0;
+}
+
+#pinpoint-root .pp-nav-btn:hover {
+  background: var(--pp-bg-light);
+  color: var(--pp-text);
+}
+
+#pinpoint-root .pp-nav-btn:focus-visible {
+  outline: 2px solid var(--pp-accent);
+  outline-offset: 2px;
+}
+
+#pinpoint-root .pp-nav-prev svg {
+  transform: rotate(-90deg);
+}
+
+#pinpoint-root .pp-nav-next svg {
+  transform: rotate(90deg);
+}
+
+#pinpoint-root .pp-nav-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--pp-text);
+  min-width: 36px;
+  text-align: center;
+  user-select: none;
+  line-height: 28px;
 }

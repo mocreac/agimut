@@ -5,6 +5,9 @@
   var row = document.querySelector('.row');
   var hostname = '';
 
+  // NOTE: This function is duplicated in content.js (which reads location.hostname directly).
+  // Popup and content script run in separate JS contexts and cannot share code
+  // without a build step. Keep both in sync manually.
   function isDevHost(host) {
     return host === 'localhost' ||
            host === '127.0.0.1' ||

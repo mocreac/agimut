@@ -17,14 +17,20 @@
   var undoTimer = null;
 
   /* ── keyboard navigation state ──────────────────────────── */
-  var keyNavEnabled = false;
-  var keyNavEl = null;
+  var keyNavEnabled = true;
 
   /* ── flash timer tracking (issue #9) ───────────────────── */
   var flashTimers = new Map();
 
+  /* ── scroll/resize throttle ────────────────────────────── */
+  var rafPending = false;
+
+  /* ── keyboard nav element cache ────────────────────────── */
+  var navElemsCache = null;
+  var navElemsDirty = true;
+
   /* ── persistence key ───────────────────────────────────── */
-  var STORE_KEY = 'pinpoint:' + location.origin + location.pathname;
+  var STORE_KEY = 'pinpoint:' + location.origin + location.pathname + location.hash;
 
   /* ── friendly tag names ────────────────────────────────── */
   var TAG = {
@@ -113,11 +119,39 @@
   barTip.className = 'pp-bar-tip';
   root.appendChild(barTip);
 
+  var toast = document.createElement('div');
+  toast.className = 'pp-toast pp-hidden';
+  toast.setAttribute('aria-live', 'polite');
+  toast.setAttribute('role', 'status');
+  root.appendChild(toast);
+
+  var toastTimer = null;
+
+  /* ── floating annotation navigator ────────────────────── */
+  var navPill = document.createElement('div');
+  navPill.className = 'pp-nav-pill pp-hidden';
+  navPill.setAttribute('aria-label', 'Annotation navigator');
+  navPill.innerHTML =
+    '<button class="pp-nav-btn pp-nav-prev" aria-label="Previous annotation">' + ph(P.arrowUp, 14) + '</button>' +
+    '<span class="pp-nav-label"></span>' +
+    '<button class="pp-nav-btn pp-nav-next" aria-label="Next annotation">' + ph(P.arrowUp, 14) + '</button>';
+  root.appendChild(navPill);
+
+  var navPrev = navPill.querySelector('.pp-nav-prev');
+  var navNext = navPill.querySelector('.pp-nav-next');
+  var navLabel = navPill.querySelector('.pp-nav-label');
+  var navPillActive = false;
+  var navCurrentId = null;
+  var navHideTimer = null;
+
   var toggle = document.createElement('button');
   toggle.className = 'pp-toggle';
   toggle.setAttribute('data-tip', 'Agimut');
   toggle.setAttribute('aria-label', 'Open Agimut');
   toggle.innerHTML = logoSvg;
+  var toggleBadge = document.createElement('span');
+  toggleBadge.className = 'pp-toggle-badge pp-hidden';
+  toggle.appendChild(toggleBadge);
   root.appendChild(toggle);
 
   /* ── menu panel (settings + shortcuts) ─────────────────── */
@@ -213,6 +247,25 @@
     hideMenu();
     hideBarTip();
     clearUndoState();
+
+    // Cancel all pending flash animations
+    flashTimers.forEach(function (timers, btn) {
+      timers.forEach(clearTimeout);
+      btn.classList.remove('pp-flash-out', 'pp-flash-in');
+    });
+    flashTimers.clear();
+
+    clearTimeout(toastTimer);
+    toast.classList.add('pp-hidden');
+    toast.classList.remove('pp-toast-in', 'pp-toast-out');
+
+    // Force-clear nav pill (hidePopover calls hideNavPill but timer may linger)
+    clearTimeout(navHideTimer);
+    navPill.classList.add('pp-hidden');
+    navPill.classList.remove('pp-pill-in', 'pp-pill-out');
+    navPillActive = false;
+    navCurrentId = null;
+
     clearTimeout(morphTimer);
 
     // Capture width, collapse to toggle size
@@ -257,9 +310,36 @@
     if (n > 0) {
       countEl.textContent = n;
       countEl.classList.remove('pp-hidden');
+      toggleBadge.textContent = n;
+      toggleBadge.classList.remove('pp-hidden');
+      toggleBadge.classList.remove('pp-badge-pop');
+      void toggleBadge.offsetWidth;
+      toggleBadge.classList.add('pp-badge-pop');
     } else {
       countEl.classList.add('pp-hidden');
+      toggleBadge.classList.add('pp-hidden');
+      toggleBadge.classList.remove('pp-badge-pop');
     }
+  }
+
+  /* ── toast notification ───────────────────────────────── */
+  function showToast(message) {
+    clearTimeout(toastTimer);
+    toast.textContent = message;
+    // Sit above nav pill when it's visible, otherwise take its spot
+    toast.style.bottom = navPillActive ? '116px' : '';
+    toast.classList.remove('pp-hidden', 'pp-toast-out');
+    void toast.offsetWidth;
+    toast.classList.add('pp-toast-in');
+    toastTimer = setTimeout(function () {
+      toast.classList.remove('pp-toast-in');
+      toast.classList.add('pp-toast-out');
+      toastTimer = setTimeout(function () {
+        toast.classList.add('pp-hidden');
+        toast.classList.remove('pp-toast-out');
+        toast.style.bottom = '';
+      }, 300);
+    }, 2500);
   }
 
   /* ── hover overlay ─────────────────────────────────────── */
@@ -447,6 +527,7 @@
     popover = pop;
     positionPop(el, pop);
     requestAnimationFrame(function () { input.focus(); });
+    if (ann) showNavPill(ann);
   }
 
   function hidePopover() {
@@ -455,6 +536,140 @@
       popover = null;
       popoverTarget = null;
       editingAnn = null;
+    }
+    hideNavPill();
+  }
+
+  function showOrphanPopover(ann) {
+    hidePopover();
+    popoverTarget = null;
+    editingAnn = ann;
+
+    var pop = document.createElement('div');
+    pop.className = 'pp-popover pp-popover-orphan';
+
+    var header = document.createElement('div');
+    header.className = 'pp-orphan-header';
+
+    var badge = document.createElement('span');
+    badge.className = 'pp-comment-badge pp-badge-orphan';
+    badge.textContent = ann.id;
+    header.appendChild(badge);
+
+    var label = document.createElement('span');
+    label.className = 'pp-orphan-label';
+    label.textContent = 'Element not found';
+    header.appendChild(label);
+
+    var del = document.createElement('button');
+    del.className = 'pp-pop-btn pp-pop-delete';
+    del.title = 'Delete';
+    del.setAttribute('aria-label', 'Delete');
+    del.innerHTML = ico.trashSm;
+    del.addEventListener('click', function (e) {
+      e.stopPropagation();
+      deleteAnnotation(ann.id);
+      hidePopover();
+    });
+    header.appendChild(del);
+    pop.appendChild(header);
+
+    if (ann.comment) {
+      var commentEl = document.createElement('p');
+      commentEl.className = 'pp-orphan-comment';
+      commentEl.textContent = ann.comment;
+      pop.appendChild(commentEl);
+    }
+
+    var selectorEl = document.createElement('div');
+    selectorEl.className = 'pp-orphan-selector';
+    selectorEl.textContent = ann.selector;
+    pop.appendChild(selectorEl);
+
+    root.appendChild(pop);
+    popover = pop;
+
+    // Position near the orphan pin
+    var pinR = ann.pinEl.getBoundingClientRect();
+    pop.style.top = Math.min(pinR.bottom + 8, window.innerHeight - 120) + 'px';
+    pop.style.left = Math.max(8, pinR.left) + 'px';
+    showNavPill(ann);
+  }
+
+  /* ── floating annotation navigator ────────────────────── */
+  function showNavPill(ann) {
+    if (annotations.length <= 1) { hideNavPill(); return; }
+    clearTimeout(navHideTimer);
+    navPill.classList.remove('pp-pill-out', 'pp-hidden');
+    navCurrentId = ann.id;
+    updateNavPillLabel();
+    void navPill.offsetWidth;
+    navPill.classList.add('pp-pill-in');
+    navPillActive = true;
+  }
+
+  function hideNavPill() {
+    if (!navPillActive) return;
+    navPill.classList.remove('pp-pill-in');
+    navPill.classList.add('pp-pill-out');
+    navHideTimer = setTimeout(function () {
+      navPill.classList.add('pp-hidden');
+      navPill.classList.remove('pp-pill-out');
+      navPillActive = false;
+      navCurrentId = null;
+    }, 200);
+  }
+
+  function updateNavPillLabel() {
+    if (navCurrentId === null) return;
+    var idx = -1;
+    for (var i = 0; i < annotations.length; i++) {
+      if (annotations[i].id === navCurrentId) { idx = i; break; }
+    }
+    if (idx === -1) { hideNavPill(); return; }
+    navLabel.textContent = (idx + 1) + ' / ' + annotations.length;
+  }
+
+  function navPillTo(ann) {
+    if (!ann) return;
+    navCurrentId = ann.id;
+    updateNavPillLabel();
+
+    if (ann.orphaned) {
+      showOrphanPopover(ann);
+      return;
+    }
+
+    if (!ann.el || !ann.el.isConnected) return;
+
+    var r = ann.el.getBoundingClientRect();
+    var inView = r.top >= 0 && r.bottom <= window.innerHeight;
+    if (inView) {
+      showOverlay(ann.el);
+      showPopover(ann.el, ann);
+    } else {
+      ann.el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      var settled = 0;
+      var lastY = ann.el.getBoundingClientRect().top;
+      var frameCount = 0;
+      function waitNav() {
+        frameCount++;
+        if (!ann.el.isConnected || frameCount > 60) return;
+        var curY = ann.el.getBoundingClientRect().top;
+        if (Math.abs(curY - lastY) < 1) {
+          settled++;
+          if (settled >= 3) {
+            showOverlay(ann.el);
+            showPopover(ann.el, ann);
+            return;
+          }
+        } else {
+          settled = 0;
+        }
+        lastY = curY;
+        requestAnimationFrame(waitNav);
+      }
+      requestAnimationFrame(waitNav);
     }
   }
 
@@ -509,6 +724,16 @@
     renumber();
     persist();
     updateCount();
+    // Update nav pill after renumber
+    if (navPillActive) {
+      if (annotations.length <= 1) {
+        hideNavPill();
+      } else {
+        var newIdx = Math.min(idx, annotations.length - 1);
+        navCurrentId = annotations[newIdx].id;
+        updateNavPillLabel();
+      }
+    }
   }
 
   function renumber() {
@@ -527,12 +752,16 @@
 
   function deleteAll() {
     if (annotations.length === 0) { shakeBtn(btnDelete); return; }
+    var count = annotations.length;
+    hidePopover();
+    hideOverlay();
     saveUndoState();
     annotations.forEach(function (a) { if (a.pinEl) a.pinEl.remove(); });
     annotations = [];
     nextId = 1;
     persist();
     updateCount();
+    showToast(count + ' annotation' + (count !== 1 ? 's' : '') + ' deleted');
   }
 
   function createPin(ann) {
@@ -544,10 +773,19 @@
     if (ann.id >= 100) pin.classList.add('pp-pin-xs');
     else if (ann.id >= 10) pin.classList.add('pp-pin-sm');
     pin.textContent = ann.id;
+
+    if (ann.orphaned) {
+      pin.classList.add('pp-pin-orphaned');
+      pin.title = 'Element not found';
+    }
+
     pinLayer.appendChild(pin);
     ann.pinEl = pin;
     positionPin(ann);
-    adaptPinTheme(ann);
+
+    if (!ann.orphaned) {
+      adaptPinTheme(ann);
+    }
 
     pin.addEventListener('keydown', function (e) {
       if (e.key === 'Enter' || e.key === ' ') {
@@ -558,6 +796,12 @@
 
     pin.addEventListener('click', function (e) {
       e.stopPropagation();
+
+      if (ann.orphaned) {
+        showOrphanPopover(ann);
+        return;
+      }
+
       if (!ann.el.isConnected) return;
 
       var r = ann.el.getBoundingClientRect();
@@ -570,7 +814,10 @@
         ann.el.scrollIntoView({ behavior: 'smooth', block: 'center' });
         var settled = 0;
         var lastY = ann.el.getBoundingClientRect().top;
+        var frameCount = 0;
         function waitForScroll() {
+          frameCount++;
+          if (!ann.el.isConnected || frameCount > 60) return;
           var curY = ann.el.getBoundingClientRect().top;
           if (Math.abs(curY - lastY) < 1) {
             settled++;
@@ -591,7 +838,18 @@
   }
 
   function positionPin(ann) {
-    if (!ann.el.isConnected) { ann.pinEl.style.display = 'none'; return; }
+    if (ann.orphaned) {
+      var orphanIndex = 0;
+      for (var oi = 0; oi < annotations.length; oi++) {
+        if (annotations[oi] === ann) break;
+        if (annotations[oi].orphaned) orphanIndex++;
+      }
+      ann.pinEl.style.display = 'flex';
+      ann.pinEl.style.top = (8 + orphanIndex * 30) + 'px';
+      ann.pinEl.style.left = '8px';
+      return;
+    }
+    if (!ann.el || !ann.el.isConnected) { ann.pinEl.style.display = 'none'; return; }
     var r = ann.el.getBoundingClientRect();
     var inView = r.bottom > 0 && r.top < window.innerHeight &&
                  r.right > 0 && r.left < window.innerWidth;
@@ -625,7 +883,7 @@
   function saveUndoState() {
     undoData = {
       items: annotations.map(function (a) {
-        return { id: a.id, el: a.el, selector: a.selector, type: a.type, comment: a.comment };
+        return { id: a.id, el: a.el, selector: a.selector, type: a.type, comment: a.comment, orphaned: !!a.orphaned };
       }),
       nextId: nextId,
     };
@@ -655,7 +913,19 @@
     var savedNextId = undoData.nextId;
     clearUndoState();
     items.forEach(function (item) {
-      if (!item.el || !item.el.isConnected) return;
+      if (!item.el || !item.el.isConnected) {
+        // Restore orphaned annotations too
+        if (item.selector) {
+          var orphan = {
+            id: item.id, el: null, selector: item.selector,
+            type: item.type, comment: item.comment, pinEl: null,
+            orphaned: true,
+          };
+          annotations.push(orphan);
+          createPin(orphan);
+        }
+        return;
+      }
       var ann = {
         id: item.id, el: item.el, selector: item.selector,
         type: item.type, comment: item.comment, pinEl: null,
@@ -692,6 +962,7 @@
       '[role], [id]:not(script):not(style):not(link)';
 
   function getNavigableElements() {
+    if (!navElemsDirty && navElemsCache !== null) return navElemsCache;
     var all = document.querySelectorAll(NAV_SELECTOR);
     var result = [];
     for (var i = 0; i < all.length; i++) {
@@ -704,6 +975,8 @@
       if (r.right < 0 || r.left > window.innerWidth) continue;
       result.push(el);
     }
+    navElemsCache = result;
+    navElemsDirty = false;
     return result;
   }
 
@@ -821,7 +1094,6 @@
   function keyNavTo(el) {
     if (!el) return;
     hovered = el;
-    keyNavEl = el;
     showOverlay(el);
     scrollIntoViewIfNeeded(el);
   }
@@ -878,6 +1150,12 @@
     ];
     annotations.forEach(function (ann) {
       lines.push(ann.id + '. [' + ann.type + '] ' + ann.selector);
+      if (ann.orphaned) {
+        lines.push('   (Element not found)');
+        lines.push('   Comment: ' + ann.comment);
+        lines.push('');
+        return;
+      }
       var trail = getAncestorTrail(ann.el);
       if (trail) lines.push('   In: ' + trail);
       var tag = getCleanTag(ann.el);
@@ -892,18 +1170,26 @@
 
   function copyAll() {
     if (annotations.length === 0) { shakeBtn(btnCopy); return; }
+    var count = annotations.length;
     navigator.clipboard.writeText(formatMarkdown()).then(
-      function () { flashBtn(btnCopy, ico.copy); },
+      function () {
+        flashBtn(btnCopy, ico.copy);
+        showToast(count + ' annotation' + (count !== 1 ? 's' : '') + ' copied');
+      },
       function () { shakeBtn(btnCopy); }
     );
   }
 
   function copyAndClear() {
     if (annotations.length === 0) { shakeBtn(btnSend); return; }
+    var count = annotations.length;
     var md = formatMarkdown();
     saveUndoState();
     navigator.clipboard.writeText(md).then(function () {
       flashBtn(btnSend, ico.send);
+      showToast(count + ' annotation' + (count !== 1 ? 's' : '') + ' copied & cleared');
+      hidePopover();
+      hideOverlay();
       annotations.forEach(function (a) { if (a.pinEl) a.pinEl.remove(); });
       annotations = [];
       nextId = 1;
@@ -951,17 +1237,51 @@
   }
 
   /* ── persistence ───────────────────────────────────────── */
+  var LRU_MAX_KEYS = 50;
+
   function persist() {
     var data = {
       nextId: nextId,
+      _lastAccess: Date.now(),
       items: annotations.map(function (a) {
         return { id: a.id, selector: a.selector, type: a.type, comment: a.comment };
       }),
     };
-    try { localStorage.setItem(STORE_KEY, JSON.stringify(data)); } catch (e) { /* full */ }
+    try {
+      localStorage.setItem(STORE_KEY, JSON.stringify(data));
+      pruneOldEntries();
+    } catch (e) { /* full */ }
+  }
+
+  function pruneOldEntries() {
+    var keys = [];
+    try {
+      for (var i = 0; i < localStorage.length; i++) {
+        var k = localStorage.key(i);
+        if (k && k.indexOf('pinpoint:') === 0) keys.push(k);
+      }
+    } catch (e) { return; }
+    if (keys.length <= LRU_MAX_KEYS) return;
+    var entries = [];
+    keys.forEach(function (k) {
+      try {
+        var raw = localStorage.getItem(k);
+        var parsed = raw ? JSON.parse(raw) : null;
+        var ts = parsed && parsed._lastAccess ? parsed._lastAccess : 0;
+        entries.push({ key: k, ts: ts });
+      } catch (e) { entries.push({ key: k, ts: 0 }); }
+    });
+    entries.sort(function (a, b) { return a.ts - b.ts; });
+    var toRemove = entries.length - LRU_MAX_KEYS;
+    for (var j = 0; j < toRemove; j++) {
+      if (entries[j].key !== STORE_KEY) {
+        try { localStorage.removeItem(entries[j].key); } catch (e) { /* */ }
+      }
+    }
   }
 
   function restore() {
+    var orphanCount = 0;
     try {
       var raw = localStorage.getItem(STORE_KEY);
       if (!raw) return;
@@ -969,8 +1289,18 @@
       nextId = data.nextId || 1;
       (data.items || []).forEach(function (item) {
         var el;
-        try { el = document.querySelector(item.selector); } catch (e) { return; }
-        if (!el) return;
+        try { el = document.querySelector(item.selector); } catch (e) { el = null; }
+        if (!el) {
+          var orphan = {
+            id: item.id, el: null, selector: item.selector,
+            type: item.type, comment: item.comment, pinEl: null,
+            orphaned: true,
+          };
+          annotations.push(orphan);
+          createPin(orphan);
+          orphanCount++;
+          return;
+        }
         var ann = {
           id: item.id, el: el, selector: item.selector,
           type: item.type, comment: item.comment, pinEl: null,
@@ -980,9 +1310,21 @@
       });
     } catch (e) { /* corrupt */ }
     updateCount();
+    if (orphanCount > 0) {
+      setTimeout(function () {
+        showToast(orphanCount + ' annotation' + (orphanCount !== 1 ? 's' : '') + ' couldn\'t find their elements');
+      }, 400);
+    }
   }
 
   /* ── selector builder (#12 — filter generated classes) ─── */
+  // Heuristic for detecting CSS-in-JS / build-tool generated class names.
+  // Pattern 1: CSS-in-JS runtime prefixes (styled-components 'sc-', emotion 'css-', MUI 'makeStyles-', etc.)
+  //   False-positive risk: hand-written classes starting with these prefixes (e.g. 'css-header').
+  // Pattern 2: Short prefix + hex hash (webpack/Next.js atomic CSS, e.g. 'ab1f2e3c4')
+  //   False-positive risk: short semantic class names that are mostly hex chars.
+  // Pattern 3: Underscore-prefixed minified identifiers (SvelteKit, Astro, e.g. '_a1b2c3d4')
+  //   False-positive risk: deliberate underscore-prefixed utility classes.
   function isGeneratedClass(cls) {
     return /^(css|sc|emotion|styled|jss|makeStyles|_)-?/.test(cls) ||
            /^[a-zA-Z]{1,3}[0-9a-f]{5,}$/.test(cls) ||
@@ -1046,7 +1388,7 @@
   }
 
   function adaptPinTheme(ann) {
-    if (!ann.el.isConnected || !ann.pinEl) return;
+    if (!ann.el || !ann.el.isConnected || !ann.pinEl) return;
     var rgb = parseRgb(getEffectiveBgColor(ann.el));
     var lum = srgbLuminance(rgb.r, rgb.g, rgb.b);
 
@@ -1126,8 +1468,26 @@
 
   function resetTaps() { tapKey = ''; tapCount = 0; clearTimeout(tapTimer); tapTimer = null; }
 
+  // Nav pill arrow key navigation (capture phase — fires before textarea stopPropagation)
+  document.addEventListener('keydown', function (e) {
+    if (!active || !navPillActive || navCurrentId === null || annotations.length <= 1) return;
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    e.preventDefault();
+    e.stopPropagation();
+    var idx = -1;
+    for (var ni = 0; ni < annotations.length; ni++) {
+      if (annotations[ni].id === navCurrentId) { idx = ni; break; }
+    }
+    if (idx === -1) return;
+    var target = e.key === 'ArrowLeft'
+      ? (idx - 1 + annotations.length) % annotations.length
+      : (idx + 1) % annotations.length;
+    navPillTo(annotations[target]);
+  }, true);
+
   document.addEventListener('keydown', function (e) {
     if (!active) return;
+
     if (popover || inputFocused()) {
       if (e.key === 'Escape' && popover) { hidePopover(); hideOverlay(); }
       return;
@@ -1246,16 +1606,29 @@
   });
 
   // Scroll / resize
-  window.addEventListener('scroll', refreshAll, true);
-  window.addEventListener('resize', refreshAll);
+  function scheduleRefresh() {
+    navElemsDirty = true;
+    if (rafPending) return;
+    rafPending = true;
+    requestAnimationFrame(function () {
+      rafPending = false;
+      refreshAll();
+    });
+  }
+  window.addEventListener('scroll', scheduleRefresh, true);
+  window.addEventListener('resize', scheduleRefresh);
 
   /* ── SPA navigation detection (#11) ────────────────────── */
   var currentPath = location.pathname;
+  var currentHash = location.hash;
 
   function onNavChange() {
-    if (location.pathname === currentPath) return;
-    currentPath = location.pathname;
-    STORE_KEY = 'pinpoint:' + location.origin + location.pathname;
+    var newPath = location.pathname;
+    var newHash = location.hash;
+    if (newPath === currentPath && newHash === currentHash) return;
+    currentPath = newPath;
+    currentHash = newHash;
+    STORE_KEY = 'pinpoint:' + location.origin + location.pathname + location.hash;
     annotations.forEach(function (a) { if (a.pinEl) a.pinEl.remove(); });
     annotations = [];
     nextId = 1;
@@ -1270,9 +1643,14 @@
   history.pushState = function () { _pushState.apply(this, arguments); onNavChange(); };
   history.replaceState = function () { _replaceState.apply(this, arguments); onNavChange(); };
   window.addEventListener('popstate', onNavChange);
+  window.addEventListener('hashchange', onNavChange);
 
   /* ── toolbar wiring ────────────────────────────────────── */
   btnComment.addEventListener('click', function (e) { e.stopPropagation(); commenting ? stopCommenting() : startCommenting(); });
+  countEl.addEventListener('click', function (e) {
+    e.stopPropagation();
+    if (annotations.length > 0) navPillTo(annotations[0]);
+  });
   btnCopy.addEventListener('click', function (e) { e.stopPropagation(); copyAll(); });
   btnSend.addEventListener('click', function (e) { e.stopPropagation(); copyAndClear(); });
   btnDelete.addEventListener('click', function (e) {
@@ -1282,6 +1660,33 @@
   btnShortcuts.addEventListener('click', function (e) { e.stopPropagation(); toggleMenu(); });
   btnClose.addEventListener('click', function (e) { e.stopPropagation(); deactivate(); });
   toggle.addEventListener('click', function (e) { e.stopPropagation(); activate(); });
+
+  /* ── nav pill wiring ──────────────────────────────────── */
+  navPrev.addEventListener('click', function (e) {
+    e.stopPropagation();
+    if (navCurrentId === null || annotations.length === 0) return;
+    var idx = -1;
+    for (var i = 0; i < annotations.length; i++) {
+      if (annotations[i].id === navCurrentId) { idx = i; break; }
+    }
+    if (idx === -1) return;
+    var prevIdx = (idx - 1 + annotations.length) % annotations.length;
+    navPillTo(annotations[prevIdx]);
+  });
+
+  navNext.addEventListener('click', function (e) {
+    e.stopPropagation();
+    if (navCurrentId === null || annotations.length === 0) return;
+    var idx = -1;
+    for (var i = 0; i < annotations.length; i++) {
+      if (annotations[i].id === navCurrentId) { idx = i; break; }
+    }
+    if (idx === -1) return;
+    var nextIdx = (idx + 1) % annotations.length;
+    navPillTo(annotations[nextIdx]);
+  });
+
+  navPill.addEventListener('click', function (e) { e.stopPropagation(); });
 
   /* ── menu settings wiring ─────────────────────────────── */
   var keyNavToggle = menuPanel.querySelector('.pp-keynav-toggle');
@@ -1296,10 +1701,8 @@
 
   // Restore settings
   chrome.storage.local.get('keyNavEnabled', function (data) {
-    if (data.keyNavEnabled !== undefined) {
-      keyNavEnabled = !!data.keyNavEnabled;
-      keyNavToggle.checked = keyNavEnabled;
-    }
+    keyNavEnabled = data.keyNavEnabled !== undefined ? !!data.keyNavEnabled : true;
+    keyNavToggle.checked = keyNavEnabled;
   });
 
   /* ── custom tooltips ──────────────────────────────────── */
@@ -1323,7 +1726,7 @@
     var tw = barTip.offsetWidth;
     var th = barTip.offsetHeight;
     barTip.style.left = Math.max(8, br.left + br.width / 2 - tw / 2) + 'px';
-    barTip.style.top = (br.top - th - 8) + 'px';
+    barTip.style.top = (br.top - th - 10) + 'px';
   }
 
   function hideBarTip() {
@@ -1348,6 +1751,9 @@
   root.addEventListener('click', function () { hideBarTip(); }, true);
 
   /* ── dev-only helper ─────────────────────────────────────── */
+  // NOTE: This function is duplicated in popup.js (which takes a host parameter).
+  // Popup and content script run in separate JS contexts and cannot share code
+  // without a build step. Keep both in sync manually.
   function isDevHost() {
     var h = location.hostname;
     return h === 'localhost' || h === '127.0.0.1' || h === '0.0.0.0' ||

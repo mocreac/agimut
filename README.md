@@ -8,7 +8,7 @@ Agimut is a Chrome extension that lets you pin comments on UI elements and expor
 
 ## Install
 
-Chrome Web Store listing coming soon.
+**Chrome Web Store:** [Agimut](https://chromewebstore.google.com/detail/kjkhilpfobeadgnhnoomknmblnccakmf)
 
 **Manual install:**
 
@@ -62,7 +62,7 @@ The viewport line helps AI agents understand which breakpoint you were reviewing
 
 ### Keyboard navigation
 
-Enable keyboard navigation in the in-page menu (click the sliders icon on the toolbar). When active in comment mode:
+Keyboard navigation is enabled by default. Toggle it in the in-page menu (click the sliders icon on the toolbar). When active in comment mode:
 
 | Key | Action |
 |---|---|
@@ -73,26 +73,17 @@ Enable keyboard navigation in the in-page menu (click the sliders icon on the to
 
 This lets you select a card container vs. the text inside it, which matters for precise design review.
 
-## Pin contrast
+## Latest updates (v1.1)
 
-Pins automatically adapt to the background behind them. On light backgrounds they gain elevation shadow for depth. On warm/orange backgrounds close to the pin accent color, pins shift to an indigo palette so they stay visible.
-
-## Extension menu
-
-Right-click the Agimut icon or click it to open the popup:
-
-- **Enabled** toggle to disable Agimut on the current site
-- **Dev only** mode to restrict Agimut to localhost, 127.0.0.1, and .local domains
-
-The in-page config button (sliders icon) opens a settings panel with:
-
-- **Keyboard navigation** toggle
-- Full keyboard shortcuts reference
-
-## Multiple annotations per element
-
-Click the same element multiple times to add multiple comments. All annotations on one element open together in the popover, each with its own numbered badge. Deleting any annotation renumbers the rest sequentially.
-
+- Toast notifications — copy, clear, and delete actions show a brief confirmation toast above the toolbar
+- Toggle badge — annotation count badge appears on the toggle button when the toolbar is closed
+- Floating annotation navigator — click any pin or the count badge to open a prev/next pill; arrow left/right to navigate between annotations
+- Orphaned annotations — when a page changes and an annotated element is gone, the pin snaps to the top-left with a "not found" indicator and the original selector for debugging
+- Keyboard navigation on by default — arrow keys, parent/child, and Tab cycling work immediately in comment mode
+- Scroll/resize performance — rAF-throttled repositioning with cached navigable elements
+- Hash-based SPA routing — annotations persist per hash route on single-page apps
+- localStorage LRU cleanup — caps stored pages at 50, evicts oldest by last-access timestamp
+- Unified glass UI — tooltip, toast, and nav pill share a consistent dark glass style with backdrop blur
 
 ## License
 
