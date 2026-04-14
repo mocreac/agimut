@@ -30,7 +30,7 @@
   var navElemsDirty = true;
 
   /* ── persistence key ───────────────────────────────────── */
-  var STORE_KEY = 'pinpoint:' + location.origin + location.pathname + location.hash;
+  var STORE_KEY = 'pinpoint:' + location.origin + location.pathname + location.search + location.hash;
 
   /* ── friendly tag names ────────────────────────────────── */
   var TAG = {
@@ -1620,15 +1620,18 @@
 
   /* ── SPA navigation detection (#11) ────────────────────── */
   var currentPath = location.pathname;
+  var currentSearch = location.search;
   var currentHash = location.hash;
 
   function onNavChange() {
     var newPath = location.pathname;
+    var newSearch = location.search;
     var newHash = location.hash;
-    if (newPath === currentPath && newHash === currentHash) return;
+    if (newPath === currentPath && newSearch === currentSearch && newHash === currentHash) return;
     currentPath = newPath;
+    currentSearch = newSearch;
     currentHash = newHash;
-    STORE_KEY = 'pinpoint:' + location.origin + location.pathname + location.hash;
+    STORE_KEY = 'pinpoint:' + location.origin + location.pathname + location.search + location.hash;
     annotations.forEach(function (a) { if (a.pinEl) a.pinEl.remove(); });
     annotations = [];
     nextId = 1;
