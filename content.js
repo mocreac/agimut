@@ -1285,7 +1285,7 @@
     editingAnn = ann || null;
     popoverTarget = target;
 
-    var targetAnns = ann ? getAnnotationsForTarget(target) : [];
+    var targetAnns = getAnnotationsForTarget(target);
     var isEdit = targetAnns.length > 0;
     var quoteTextNode = null;
     var quoteBlockNode = null;
