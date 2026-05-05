@@ -2198,8 +2198,7 @@
       updateCount();
     }, function () {
       shakeBtn(btnSend);
-      // restore since copy failed
-      undo();
+      clearUndoState();
     });
   }
 
