@@ -94,7 +94,7 @@ Keyboard navigation is enabled by default. Toggle it in the in-page menu (click 
 
 This lets you select a card container vs. the text inside it, which matters for precise design review.
 
-## Current version (v1.4)
+## Current version (v1.5)
 
 - text selection annotations
 - per-page persistence with route-aware restore

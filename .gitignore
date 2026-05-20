@@ -5,6 +5,7 @@
 *.crx
 *.pem
 *.zip
+_prod/
 
 # Editors
 .idea/
