@@ -70,6 +70,19 @@ html.pp-commenting body * {
   cursor: crosshair !important;
 }
 
+html.pp-measuring,
+html.pp-measuring body,
+html.pp-measuring body * {
+  cursor: crosshair !important;
+}
+
+html.pp-measuring,
+html.pp-measuring body,
+html.pp-measuring body * {
+  user-select: none !important;
+  -webkit-user-select: none !important;
+}
+
 #pinpoint-root .pp-bar-btn,
 #pinpoint-root .pp-toggle,
 #pinpoint-root .pp-pin,
@@ -416,6 +429,9 @@ html.pp-commenting body * {
   position: fixed;
   width: 374px;
   max-width: calc(100vw - 16px);
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: var(--pp-popover-pad);
   border-radius: calc(var(--pp-radius-inner) + var(--pp-popover-pad));
   z-index: 2147483646;
@@ -1065,4 +1081,208 @@ html.pp-commenting body * {
   line-height: 30px;
   color: var(--pp-text);
   font-variant-numeric: tabular-nums;
+}
+
+/* ── measurement tool ─────────────────────────────────── */
+
+#pinpoint-root .pp-unit-toggle {
+  display: inline-flex;
+  align-items: center;
+  height: var(--pp-button-size);
+  padding: 3px;
+  margin: 0 2px;
+  border-radius: var(--pp-radius-inner);
+  background: var(--pp-bg-soft);
+  box-shadow: inset 0 0 0 1px var(--pp-border);
+  gap: 2px;
+  animation: pp-unit-in 180ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+@keyframes pp-unit-in {
+  from { opacity: 0; transform: translateX(-4px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+#pinpoint-root .pp-unit-btn {
+  border: 0;
+  background: transparent;
+  color: var(--pp-text-dim);
+  padding: 0 9px;
+  height: calc(var(--pp-button-size) - 6px);
+  border-radius: calc(var(--pp-radius-inner) - 3px);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  cursor: pointer !important;
+  outline: none;
+  font-variant-numeric: tabular-nums;
+  transition: background 140ms ease, color 140ms ease, transform 140ms ease;
+}
+
+#pinpoint-root .pp-unit-btn:hover {
+  color: var(--pp-text);
+}
+
+#pinpoint-root .pp-unit-btn:active {
+  transform: scale(0.95);
+}
+
+#pinpoint-root .pp-unit-btn.pp-unit-active {
+  background: var(--pp-bg-strong);
+  color: var(--pp-text);
+  box-shadow: inset 0 0 0 1px var(--pp-border);
+}
+
+#pinpoint-root .pp-measure-layer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2147483643;
+}
+
+#pinpoint-root .pp-measure-outline,
+#pinpoint-root .pp-measure-padding,
+#pinpoint-root .pp-measure-margin,
+#pinpoint-root .pp-measure-line,
+#pinpoint-root .pp-measure-projection,
+#pinpoint-root .pp-measure-tick,
+#pinpoint-root .pp-measure-edge,
+#pinpoint-root .pp-measure-size,
+#pinpoint-root .pp-measure-dist,
+#pinpoint-root .pp-measure-pin-dot {
+  position: fixed;
+  pointer-events: none;
+}
+
+#pinpoint-root .pp-measure-padding {
+  background: rgba(147, 196, 125, 0.22);
+}
+
+#pinpoint-root .pp-measure-margin {
+  background: rgba(246, 178, 107, 0.20);
+}
+
+#pinpoint-root .pp-measure-outline {
+  border: 1px solid var(--pp-accent);
+  border-radius: 1px;
+  opacity: 0;
+  animation: pp-measure-fade-in 100ms ease-out forwards;
+}
+
+@keyframes pp-measure-fade-in {
+  to { opacity: 1; }
+}
+
+#pinpoint-root .pp-measure-outline-source {
+  border-width: 1.5px;
+  box-shadow:
+    0 0 0 1px rgba(232, 81, 2, 0.18),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+}
+
+#pinpoint-root .pp-measure-outline-target {
+  border-color: var(--pp-accent);
+  opacity: 0.85;
+  animation: pp-measure-fade-target 100ms ease-out forwards;
+}
+
+@keyframes pp-measure-fade-target {
+  to { opacity: 0.85; }
+}
+
+#pinpoint-root .pp-measure-pin-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--pp-accent);
+  box-shadow: 0 0 0 1.5px var(--pp-bg-strong);
+}
+
+#pinpoint-root .pp-measure-line {
+  background: var(--pp-accent);
+}
+
+#pinpoint-root .pp-measure-tick {
+  background: var(--pp-accent);
+}
+
+#pinpoint-root .pp-measure-projection-h {
+  height: 1px;
+  background-image: linear-gradient(to right, var(--pp-accent) 50%, transparent 50%);
+  background-size: 5px 1px;
+  opacity: 0.65;
+}
+
+#pinpoint-root .pp-measure-projection-v {
+  width: 1px;
+  background-image: linear-gradient(to bottom, var(--pp-accent) 50%, transparent 50%);
+  background-size: 1px 5px;
+  opacity: 0.65;
+}
+
+#pinpoint-root .pp-measure-edge {
+  transform: translate(-50%, -50%);
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.62);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  font-family: "Geist Mono", "SF Mono", "JetBrains Mono", "Menlo", monospace;
+  line-height: 1.3;
+  letter-spacing: 0.01em;
+}
+
+#pinpoint-root[data-theme="light"] .pp-measure-edge {
+  background: rgba(24, 22, 20, 0.78);
+}
+
+#pinpoint-root .pp-measure-size {
+  transform: translate(-50%, 0);
+  padding: 3px 7px;
+  border-radius: 5px;
+  background: var(--pp-accent);
+  color: #fff;
+  font-size: 10.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  font-family: "Geist Mono", "SF Mono", "JetBrains Mono", "Menlo", monospace;
+  line-height: 1.2;
+  letter-spacing: 0.01em;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.18);
+}
+
+#pinpoint-root .pp-measure-size[data-role="target"] {
+  background: rgba(232, 81, 2, 0.88);
+}
+
+#pinpoint-root .pp-measure-dist {
+  transform: translate(-50%, -50%);
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--pp-accent);
+  color: #fff;
+  font-size: 10.5px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  font-family: "Geist Mono", "SF Mono", "JetBrains Mono", "Menlo", monospace;
+  line-height: 1.2;
+  letter-spacing: 0.01em;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.22);
+}
+
+/* Inner-edge gap labels (parent → child) sit on the page, so use the
+   neutral dark pill style so they don't compete with the accent chip. */
+#pinpoint-root .pp-measure-dist.pp-measure-dist-inner {
+  background: rgba(0, 0, 0, 0.72);
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+#pinpoint-root[data-theme="light"] .pp-measure-dist.pp-measure-dist-inner {
+  background: rgba(24, 22, 20, 0.82);
 }

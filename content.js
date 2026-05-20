@@ -9,12 +9,24 @@
   var hovered = null;
   var popover = null;
   var popoverTarget = null;
+  var popoverResizeObserver = null;
   var editingAnn = null;
   var morphTimer = null;
   var uiTheme = 'dark';
   var toolbarPosition = 'bottom-left';
   var referencePicking = false;
   var referenceEditor = null;
+
+  /* ── measurement state ─────────────────────────────────── */
+  var measuring = false;
+  var measureUnit = 'px';
+  var measureRootFontSize = 16;
+  var measureHoverTarget = null;     // currently hovered element (no drag)
+  var measureDragging = false;       // drag in progress
+  var measureDragSource = null;      // element where drag started
+  var measureDragTarget = null;      // element under cursor while dragging
+  var measureCapturedSource = null;  // last completed drag's source (persists)
+  var measureCapturedTarget = null;  // last completed drag's target (persists)
 
   /* ── transient selection state ─────────────────────────── */
   var highlightNodes = [];
@@ -128,6 +140,7 @@
     undo:        'M224,128a96,96,0,0,1-94.71,96H128A95.38,95.38,0,0,1,62.1,197.8a8,8,0,0,1,11-11.63A80,80,0,1,0,71.43,71.39a3.07,3.07,0,0,1-.26.25L44.59,96H72a8,8,0,0,1,0,16H24a8,8,0,0,1-8-8V56a8,8,0,0,1,16,0V85.8L60.25,60A96,96,0,0,1,224,128Z',
     sliders:     'M64,105V40a8,8,0,0,0-16,0v65a32,32,0,0,0,0,62v49a8,8,0,0,0,16,0V167a32,32,0,0,0,0-62Zm-8,47a16,16,0,1,1,16-16A16,16,0,0,1,56,152Zm80-95V40a8,8,0,0,0-16,0V57a32,32,0,0,0,0,62v97a8,8,0,0,0,16,0V119a32,32,0,0,0,0-62Zm-8,47a16,16,0,1,1,16-16A16,16,0,0,1,128,104Zm104,64a32.06,32.06,0,0,0-24-31V40a8,8,0,0,0-16,0v97a32,32,0,0,0,0,62v17a8,8,0,0,0,16,0V199A32.06,32.06,0,0,0,232,168Zm-32,16a16,16,0,1,1,16-16A16,16,0,0,1,200,184Z',
     crosshair:   'M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm8,191.63V184a8,8,0,0,0-16,0v31.63A88.13,88.13,0,0,1,40.37,136H72a8,8,0,0,0,0-16H40.37A88.13,88.13,0,0,1,120,40.37V72a8,8,0,0,0,16,0V40.37A88.13,88.13,0,0,1,215.63,120H184a8,8,0,0,0,0,16h31.63A88.13,88.13,0,0,1,136,215.63Z',
+    ruler:       'M235.32,73.37,182.63,20.69a16,16,0,0,0-22.63,0L20.68,160a16,16,0,0,0,0,22.63l52.69,52.68a16,16,0,0,0,22.63,0L235.32,96A16,16,0,0,0,235.32,73.37ZM84.68,224,32,171.31l32-32,26.34,26.35a8,8,0,0,0,11.32-11.32L75.31,128,96,107.31l26.34,26.35a8,8,0,0,0,11.32-11.32L107.31,96,128,75.31l26.34,26.35a8,8,0,0,0,11.32-11.32L139.31,64l32-32L224,84.68Z',
   };
 
   var ico = {
@@ -143,6 +156,7 @@
     undo:     ph(P.undo),
     sliders:  ph(P.sliders),
     crosshair: ph(P.crosshair),
+    ruler:    ph(P.ruler),
   };
 
   var logoSvg = '<svg width="22" height="17" viewBox="83 68 378 289" fill="none" stroke="currentColor" stroke-width="40" stroke-linecap="round" stroke-linejoin="round"><path d="M113.279 198.073L225.785 327.192V98.2M225.785 327.192L331.751 122.192H430.911"/></svg>';
@@ -169,6 +183,11 @@
   pinLayer.className = 'pp-pin-layer';
   root.appendChild(pinLayer);
 
+  var measureLayer = document.createElement('div');
+  measureLayer.className = 'pp-measure-layer pp-hidden';
+  measureLayer.setAttribute('aria-hidden', 'true');
+  root.appendChild(measureLayer);
+
   // toolbar
   var bar = document.createElement('div');
   bar.className = 'pp-bar pp-hidden';
@@ -178,6 +197,12 @@
     '<div class="pp-bar-sep"></div>' +
     '<button class="pp-bar-btn pp-btn-copy" data-tip="Copy all" data-keys="A" aria-label="Copy all">' + ico.copy + '</button>' +
     '<button class="pp-bar-btn pp-btn-send" data-tip="Copy & clear" data-keys="Shift,A" aria-label="Copy and clear">' + ico.send + '</button>' +
+    '<div class="pp-bar-sep"></div>' +
+    '<button class="pp-bar-btn pp-btn-measure" data-tip="Measure" data-keys="M" aria-label="Measure">' + ico.ruler + '</button>' +
+    '<div class="pp-unit-toggle pp-hidden" role="group" aria-label="Measurement unit">' +
+      '<button class="pp-unit-btn pp-unit-active" data-unit="px" aria-pressed="true">px</button>' +
+      '<button class="pp-unit-btn" data-unit="rem" aria-pressed="false">rem</button>' +
+    '</div>' +
     '<div class="pp-bar-sep"></div>' +
     '<button class="pp-bar-btn pp-btn-delete" data-tip="Delete all" data-keys="X,X,X" aria-label="Delete all">' + ico.trash + '</button>' +
     '<div class="pp-bar-sep"></div>' +
@@ -244,6 +269,8 @@
     '<div class="pp-menu-section">' +
       '<div class="pp-sc-title">Shortcuts</div>' +
       '<div class="pp-sc-row"><span class="pp-sc-label">Comment mode</span><div class="pp-sc-keys"><kbd class="pp-key">C</kbd></div></div>' +
+      '<div class="pp-sc-row"><span class="pp-sc-label">Measure mode</span><div class="pp-sc-keys"><kbd class="pp-key">M</kbd></div></div>' +
+      '<div class="pp-sc-row"><span class="pp-sc-label">Toggle px / rem</span><div class="pp-sc-keys"><kbd class="pp-key">U</kbd></div></div>' +
       '<div class="pp-sc-row"><span class="pp-sc-label">Copy annotations</span><div class="pp-sc-keys"><kbd class="pp-key">A</kbd></div></div>' +
       '<div class="pp-sc-row"><span class="pp-sc-label">Copy & clear</span><div class="pp-sc-keys"><kbd class="pp-key">Shift</kbd><kbd class="pp-key">A</kbd></div></div>' +
       '<div class="pp-sc-row"><span class="pp-sc-label">Delete all</span><div class="pp-sc-keys"><kbd class="pp-key">X</kbd><kbd class="pp-key">X</kbd><kbd class="pp-key">X</kbd></div></div>' +
@@ -262,6 +289,9 @@
 
   /* ── button refs ───────────────────────────────────────── */
   var btnComment = bar.querySelector('.pp-btn-comment');
+  var btnMeasure = bar.querySelector('.pp-btn-measure');
+  var unitToggle = bar.querySelector('.pp-unit-toggle');
+  var unitBtns   = bar.querySelectorAll('.pp-unit-btn');
   var btnCopy    = bar.querySelector('.pp-btn-copy');
   var btnSend    = bar.querySelector('.pp-btn-send');
   var btnDelete  = bar.querySelector('.pp-btn-delete');
@@ -371,6 +401,7 @@
 
   function deactivate() {
     active = false;
+    stopMeasuring();
     stopCommenting();
     hidePopover();
     hideTargetHighlight();
@@ -427,6 +458,7 @@
 
   /* ── comment mode ──────────────────────────────────────── */
   function startCommenting() {
+    if (measuring) stopMeasuring();
     commenting = true;
     btnComment.classList.add('pp-active-btn');
     document.documentElement.classList.add('pp-commenting');
@@ -437,6 +469,337 @@
     btnComment.classList.remove('pp-active-btn');
     document.documentElement.classList.remove('pp-commenting');
     hideOverlay();
+  }
+
+  /* ── measure mode ──────────────────────────────────────── */
+  function startMeasuring() {
+    if (commenting) stopCommenting();
+    if (popover) {
+      hidePopover();
+      hideTargetHighlight();
+    }
+    measuring = true;
+    resetMeasureState();
+    btnMeasure.classList.add('pp-active-btn');
+    unitToggle.classList.remove('pp-hidden');
+    document.documentElement.classList.add('pp-measuring');
+    measureLayer.classList.remove('pp-hidden');
+    measureRootFontSize = readRootFontSize();
+    if (lastMouseX >= 0) renderMeasureAt(lastMouseX, lastMouseY);
+  }
+
+  function stopMeasuring() {
+    measuring = false;
+    resetMeasureState();
+    btnMeasure.classList.remove('pp-active-btn');
+    unitToggle.classList.add('pp-hidden');
+    document.documentElement.classList.remove('pp-measuring');
+    clearMeasureOverlay();
+    measureLayer.classList.add('pp-hidden');
+  }
+
+  function resetMeasureState() {
+    measureHoverTarget = null;
+    measureDragging = false;
+    measureDragSource = null;
+    measureDragTarget = null;
+    measureCapturedSource = null;
+    measureCapturedTarget = null;
+  }
+
+  function cancelMeasureDrag() {
+    measureDragging = false;
+    measureDragSource = null;
+    measureDragTarget = null;
+  }
+
+  function setMeasureUnit(unit) {
+    if (unit !== 'px' && unit !== 'rem') return;
+    if (unit === measureUnit) return;
+    measureUnit = unit;
+    unitBtns.forEach(function (b) {
+      var active = b.getAttribute('data-unit') === unit;
+      b.classList.toggle('pp-unit-active', active);
+      b.setAttribute('aria-pressed', active ? 'true' : 'false');
+    });
+    if (measuring) refreshMeasure();
+  }
+
+  function readRootFontSize() {
+    var n = parseFloat(getComputedStyle(document.documentElement).fontSize);
+    return n > 0 ? n : 16;
+  }
+
+  function formatLen(px) {
+    if (measureUnit === 'rem') {
+      var v = px / measureRootFontSize;
+      var s = v.toFixed(3);
+      s = s.replace(/\.?0+$/, '');
+      if (s === '' || s === '-') s = '0';
+      return s + 'rem';
+    }
+    return Math.round(px) + 'px';
+  }
+
+  function clearMeasureOverlay() {
+    while (measureLayer.firstChild) measureLayer.removeChild(measureLayer.firstChild);
+  }
+
+  function makeMeasureNode(cls, x, y, w, h) {
+    var n = document.createElement('div');
+    n.className = cls;
+    if (x !== undefined) n.style.left = x + 'px';
+    if (y !== undefined) n.style.top = y + 'px';
+    if (w !== undefined) n.style.width = w + 'px';
+    if (h !== undefined) n.style.height = h + 'px';
+    measureLayer.appendChild(n);
+    return n;
+  }
+
+  function makeMeasureLabel(cls, x, y, text) {
+    var n = document.createElement('div');
+    n.className = cls;
+    n.textContent = text;
+    n.style.left = x + 'px';
+    n.style.top = y + 'px';
+    measureLayer.appendChild(n);
+    return n;
+  }
+
+  function renderAnatomy(el, role, minimal) {
+    if (!el || !el.isConnected) return null;
+    var rect = el.getBoundingClientRect();
+    if (rect.width < 1 || rect.height < 1) return null;
+
+    // Anatomy (box-model padding/margin tints + per-side numeric labels) is
+    // disabled for now — only outline, pin dot, and W × H chip render.
+    // To re-enable, restore the commented block below and respect `minimal`.
+    /*
+    var cs = getComputedStyle(el);
+    var pt = Math.max(0, parseFloat(cs.paddingTop)  || 0);
+    var pr = Math.max(0, parseFloat(cs.paddingRight) || 0);
+    var pb = Math.max(0, parseFloat(cs.paddingBottom) || 0);
+    var pl = Math.max(0, parseFloat(cs.paddingLeft) || 0);
+    var mt = Math.max(0, parseFloat(cs.marginTop) || 0);
+    var mr = Math.max(0, parseFloat(cs.marginRight) || 0);
+    var mb = Math.max(0, parseFloat(cs.marginBottom) || 0);
+    var ml = Math.max(0, parseFloat(cs.marginLeft) || 0);
+    var bt = Math.max(0, parseFloat(cs.borderTopWidth) || 0);
+    var br_ = Math.max(0, parseFloat(cs.borderRightWidth) || 0);
+    var bb = Math.max(0, parseFloat(cs.borderBottomWidth) || 0);
+    var bl = Math.max(0, parseFloat(cs.borderLeftWidth) || 0);
+
+    if (!minimal) {
+      // Margin strips (outside border-box). Left/right include the corners.
+      if (mt > 0) makeMeasureNode('pp-measure-margin', rect.left, rect.top - mt, rect.width, mt);
+      if (mb > 0) makeMeasureNode('pp-measure-margin', rect.left, rect.bottom, rect.width, mb);
+      if (ml > 0) makeMeasureNode('pp-measure-margin', rect.left - ml, rect.top - mt, ml, rect.height + mt + mb);
+      if (mr > 0) makeMeasureNode('pp-measure-margin', rect.right, rect.top - mt, mr, rect.height + mt + mb);
+
+      // Padding strips (inside border, outside content). Corners owned by top/bottom.
+      var pInnerW = Math.max(0, rect.width - bl - br_);
+      var pInnerH = Math.max(0, rect.height - bt - bb);
+      if (pt > 0) makeMeasureNode('pp-measure-padding', rect.left + bl, rect.top + bt, pInnerW, pt);
+      if (pb > 0) makeMeasureNode('pp-measure-padding', rect.left + bl, rect.bottom - bb - pb, pInnerW, pb);
+      if (pl > 0) makeMeasureNode('pp-measure-padding', rect.left + bl, rect.top + bt + pt, pl, Math.max(0, pInnerH - pt - pb));
+      if (pr > 0) makeMeasureNode('pp-measure-padding', rect.right - br_ - pr, rect.top + bt + pt, pr, Math.max(0, pInnerH - pt - pb));
+    }
+    */
+
+    // Outline
+    var outlineCls = 'pp-measure-outline pp-measure-outline-' + (role || 'hover');
+    makeMeasureNode(outlineCls, rect.left, rect.top, rect.width, rect.height);
+
+    // Pin dot for source
+    if (role === 'source') {
+      makeMeasureNode('pp-measure-pin-dot', rect.left - 3, rect.top - 3);
+    }
+
+    /*
+    if (!minimal) {
+      // Padding numeric labels (centered on each strip)
+      if (pt > 0) makeMeasureLabel('pp-measure-edge pp-measure-edge-pad', rect.left + rect.width / 2, rect.top + bt + pt / 2, formatLen(pt));
+      if (pb > 0) makeMeasureLabel('pp-measure-edge pp-measure-edge-pad', rect.left + rect.width / 2, rect.bottom - bb - pb / 2, formatLen(pb));
+      if (pl > 0) makeMeasureLabel('pp-measure-edge pp-measure-edge-pad', rect.left + bl + pl / 2, rect.top + rect.height / 2, formatLen(pl));
+      if (pr > 0) makeMeasureLabel('pp-measure-edge pp-measure-edge-pad', rect.right - br_ - pr / 2, rect.top + rect.height / 2, formatLen(pr));
+
+      // Margin numeric labels
+      if (mt > 0) makeMeasureLabel('pp-measure-edge pp-measure-edge-mar', rect.left + rect.width / 2, rect.top - mt / 2, formatLen(mt));
+      if (mb > 0) makeMeasureLabel('pp-measure-edge pp-measure-edge-mar', rect.left + rect.width / 2, rect.bottom + mb / 2, formatLen(mb));
+      if (ml > 0) makeMeasureLabel('pp-measure-edge pp-measure-edge-mar', rect.left - ml / 2, rect.top + rect.height / 2, formatLen(ml));
+      if (mr > 0) makeMeasureLabel('pp-measure-edge pp-measure-edge-mar', rect.right + mr / 2, rect.top + rect.height / 2, formatLen(mr));
+    }
+    */
+
+    // W × H chip — only on solo hover. When a pair is being measured the
+    // distance label is what matters; chips on both ends collide in the gap.
+    if (!minimal) {
+      var sizeText = formatLen(rect.width) + ' × ' + formatLen(rect.height);
+      var sizeY = rect.top - 24;
+      if (sizeY < 4) sizeY = rect.bottom + 6;
+      var chip = makeMeasureLabel('pp-measure-size', rect.left + rect.width / 2, sizeY, sizeText);
+      chip.setAttribute('data-role', role || 'hover');
+    }
+
+    return rect;
+  }
+
+  function refreshMeasure() {
+    if (!measuring) return;
+    clearMeasureOverlay();
+
+    // Drop any stale element refs whose nodes have been removed.
+    if (measureCapturedSource && !measureCapturedSource.isConnected) measureCapturedSource = null;
+    if (measureCapturedTarget && !measureCapturedTarget.isConnected) measureCapturedTarget = null;
+    if (measureDragSource && !measureDragSource.isConnected) cancelMeasureDrag();
+    if (measureDragTarget && !measureDragTarget.isConnected) measureDragTarget = null;
+
+    // Drag in progress takes precedence over captured/hover.
+    if (measureDragging && measureDragSource) {
+      var hasDragPair = measureDragTarget && measureDragTarget !== measureDragSource;
+      // While the cursor is still on the source, show full anatomy. Once it
+      // reaches a different element, the pair is what matters — hide both
+      // anatomies so the distance reads cleanly.
+      renderAnatomy(measureDragSource, 'source', hasDragPair);
+      if (hasDragPair) {
+        renderAnatomy(measureDragTarget, 'target', true);
+        renderDistance(measureDragSource, measureDragTarget);
+      }
+      return;
+    }
+
+    var hasCaptured = measureCapturedSource && measureCapturedTarget &&
+                      measureCapturedSource !== measureCapturedTarget;
+
+    if (hasCaptured) {
+      renderAnatomy(measureCapturedSource, 'source', true);
+      renderAnatomy(measureCapturedTarget, 'target', true);
+      renderDistance(measureCapturedSource, measureCapturedTarget);
+      // A third element being inspected still gets full anatomy.
+      if (measureHoverTarget &&
+          measureHoverTarget !== measureCapturedSource &&
+          measureHoverTarget !== measureCapturedTarget &&
+          measureHoverTarget.isConnected) {
+        renderAnatomy(measureHoverTarget, 'hover', false);
+      }
+      return;
+    }
+
+    if (measureHoverTarget && measureHoverTarget.isConnected) {
+      renderAnatomy(measureHoverTarget, 'hover', false);
+    }
+  }
+
+  function resolveMeasureElement(x, y) {
+    var el = document.elementFromPoint(x, y);
+    if (!el || isSkippable(el) || isOurUI(el)) return null;
+    return el;
+  }
+
+  function renderMeasureAt(x, y) {
+    if (!measuring) return;
+    var el = resolveMeasureElement(x, y);
+    if (measureDragging) {
+      measureDragTarget = el;
+    } else {
+      measureHoverTarget = el;
+    }
+    refreshMeasure();
+  }
+
+  function nearEdges(a, b) {
+    // Returns {dx, dy, ax, ay, bx, by} describing the closest-edge pair between rects a and b.
+    // ax/ay = coordinate of A's near edge; bx/by = coordinate of B's near edge.
+    // dx/dy >= 0; if 0, the rects overlap on that axis.
+    var dx = 0, dy = 0;
+    var ax, ay, bx, by;
+    if (b.left >= a.right) { dx = b.left - a.right; ax = a.right; bx = b.left; }
+    else if (a.left >= b.right) { dx = a.left - b.right; ax = a.left; bx = b.right; }
+    else { ax = bx = (Math.max(a.left, b.left) + Math.min(a.right, b.right)) / 2; }
+
+    if (b.top >= a.bottom) { dy = b.top - a.bottom; ay = a.bottom; by = b.top; }
+    else if (a.top >= b.bottom) { dy = a.top - b.bottom; ay = a.top; by = b.bottom; }
+    else { ay = by = (Math.max(a.top, b.top) + Math.min(a.bottom, b.bottom)) / 2; }
+
+    return { dx: dx, dy: dy, ax: ax, ay: ay, bx: bx, by: by };
+  }
+
+  function rectContains(outer, inner) {
+    // True if inner is fully contained within outer (touching edges allowed).
+    return inner.left >= outer.left - 0.5 && inner.right <= outer.right + 0.5 &&
+           inner.top >= outer.top - 0.5 && inner.bottom <= outer.bottom + 0.5;
+  }
+
+  function renderContainment(outer, inner) {
+    // 4 inner-edge gaps from outer to inner. Skip zero-width gaps.
+    var top    = Math.max(0, inner.top - outer.top);
+    var bottom = Math.max(0, outer.bottom - inner.bottom);
+    var left   = Math.max(0, inner.left - outer.left);
+    var right  = Math.max(0, outer.right - inner.right);
+
+    var midX = inner.left + inner.width / 2;
+    var midY = inner.top + inner.height / 2;
+
+    if (top > 0) {
+      makeMeasureNode('pp-measure-projection pp-measure-projection-v', midX - 0.5, outer.top, 1, top);
+      makeMeasureLabel('pp-measure-dist pp-measure-dist-inner', midX + 8, outer.top + top / 2, formatLen(top));
+    }
+    if (bottom > 0) {
+      makeMeasureNode('pp-measure-projection pp-measure-projection-v', midX - 0.5, inner.bottom, 1, bottom);
+      makeMeasureLabel('pp-measure-dist pp-measure-dist-inner', midX + 8, inner.bottom + bottom / 2, formatLen(bottom));
+    }
+    if (left > 0) {
+      makeMeasureNode('pp-measure-projection pp-measure-projection-h', outer.left, midY - 0.5, left, 1);
+      makeMeasureLabel('pp-measure-dist pp-measure-dist-inner', outer.left + left / 2, midY - 10, formatLen(left));
+    }
+    if (right > 0) {
+      makeMeasureNode('pp-measure-projection pp-measure-projection-h', inner.right, midY - 0.5, right, 1);
+      makeMeasureLabel('pp-measure-dist pp-measure-dist-inner', inner.right + right / 2, midY - 10, formatLen(right));
+    }
+  }
+
+  function renderDistance(srcEl, tgtEl) {
+    if (!srcEl || !tgtEl || srcEl === tgtEl) return;
+    var a = srcEl.getBoundingClientRect();
+    var b = tgtEl.getBoundingClientRect();
+    if (a.width < 1 || a.height < 1 || b.width < 1 || b.height < 1) return;
+
+    // Containment cases: one element fully inside the other → 4 inner-edge gaps.
+    if (rectContains(a, b)) { renderContainment(a, b); return; }
+    if (rectContains(b, a)) { renderContainment(b, a); return; }
+
+    var n = nearEdges(a, b);
+
+    if (n.dx === 0 && n.dy === 0) return; // partial overlap — no clean gap to measure
+
+    if (n.dx > 0 && n.dy === 0) {
+      // Aligned: horizontal gap
+      var x1 = Math.min(n.ax, n.bx), x2 = Math.max(n.ax, n.bx);
+      var line = makeMeasureNode('pp-measure-line pp-measure-line-h', x1, n.ay - 0.5, x2 - x1, 1);
+      makeMeasureNode('pp-measure-tick pp-measure-tick-v', n.ax - 0.5, n.ay - 4, 1, 8);
+      makeMeasureNode('pp-measure-tick pp-measure-tick-v', n.bx - 0.5, n.ay - 4, 1, 8);
+      makeMeasureLabel('pp-measure-dist', (x1 + x2) / 2, n.ay - 12, formatLen(n.dx));
+      return;
+    }
+    if (n.dy > 0 && n.dx === 0) {
+      // Aligned: vertical gap
+      var y1 = Math.min(n.ay, n.by), y2 = Math.max(n.ay, n.by);
+      makeMeasureNode('pp-measure-line pp-measure-line-v', n.ax - 0.5, y1, 1, y2 - y1);
+      makeMeasureNode('pp-measure-tick pp-measure-tick-h', n.ax - 4, n.ay - 0.5, 8, 1);
+      makeMeasureNode('pp-measure-tick pp-measure-tick-h', n.ax - 4, n.by - 0.5, 8, 1);
+      makeMeasureLabel('pp-measure-dist', n.ax + 8, (y1 + y2) / 2, formatLen(n.dy));
+      return;
+    }
+    // Offset: L-shape
+    // Pick A's near corner (ax, ay) and B's near corner (bx, by).
+    // Horizontal projection runs at y = ay from ax to bx.
+    // Vertical projection runs at x = bx from ay to by.
+    var hx1 = Math.min(n.ax, n.bx), hx2 = Math.max(n.ax, n.bx);
+    var vy1 = Math.min(n.ay, n.by), vy2 = Math.max(n.ay, n.by);
+    makeMeasureNode('pp-measure-projection pp-measure-projection-h', hx1, n.ay - 0.5, hx2 - hx1, 1);
+    makeMeasureNode('pp-measure-projection pp-measure-projection-v', n.bx - 0.5, vy1, 1, vy2 - vy1);
+    makeMeasureLabel('pp-measure-dist', (hx1 + hx2) / 2, n.ay - 12, formatLen(n.dx));
+    makeMeasureLabel('pp-measure-dist', n.bx + 8, (vy1 + vy2) / 2, formatLen(n.dy));
   }
 
   /* ── annotation count badge (#6) ───────────────────────── */
@@ -1244,7 +1607,15 @@
     input.addEventListener('mouseup', function () { saveEditorRange(input); });
     input.addEventListener('click', function () { saveEditorRange(input); });
     input.addEventListener('keydown', function (e) {
-      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); hidePopover(); hideTargetHighlight(); hideOverlay(); }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        hidePopover();
+        hideTargetHighlight();
+        hideOverlay();
+        if (commenting) stopCommenting();
+        return;
+      }
       saveEditorRange(input);
       e.stopPropagation();
     });
@@ -1413,7 +1784,15 @@
 
     input.addEventListener('keydown', function (e) {
       if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); commit(); }
-      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); hidePopover(); hideTargetHighlight(); hideOverlay(); }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        hidePopover();
+        hideTargetHighlight();
+        hideOverlay();
+        if (commenting) stopCommenting();
+        return;
+      }
       saveEditorRange(input);
       e.stopPropagation();
     });
@@ -1432,6 +1811,7 @@
     root.appendChild(pop);
     popover = pop;
     positionPop(target, pop);
+    observePopoverSize(pop, target);
     requestAnimationFrame(function () {
       if (quoteTextNode && quoteBlockNode) {
         var lineHeight = parseFloat(getComputedStyle(quoteTextNode).lineHeight) || 18;
@@ -1443,8 +1823,26 @@
     if (ann) showNavPill(ann);
   }
 
+  function observePopoverSize(pop, target) {
+    if (popoverResizeObserver) {
+      popoverResizeObserver.disconnect();
+      popoverResizeObserver = null;
+    }
+    if (typeof ResizeObserver === 'undefined') return;
+    var first = true;
+    popoverResizeObserver = new ResizeObserver(function () {
+      if (first) { first = false; return; }
+      if (popover === pop && popoverTarget === target) positionPop(target, pop);
+    });
+    popoverResizeObserver.observe(pop);
+  }
+
   function hidePopover() {
     stopReferencePicking();
+    if (popoverResizeObserver) {
+      popoverResizeObserver.disconnect();
+      popoverResizeObserver = null;
+    }
     if (popover) {
       popover.remove();
       popover = null;
@@ -1579,20 +1977,31 @@
     var anchor = getTargetAnchorRect(target);
     if (!anchor) return;
 
+    var margin = 8;
+    var gap = 12;
+    var viewportH = window.innerHeight;
+    var viewportW = window.innerWidth;
+    var spaceAbove = Math.max(0, anchor.top - margin - gap);
+    var spaceBelow = Math.max(0, viewportH - anchor.bottom - margin - gap);
+    var placeBelow = spaceBelow >= spaceAbove;
+    var available = Math.max(120, placeBelow ? spaceBelow : spaceAbove);
+
+    pop.style.maxHeight = available + 'px';
+
     var popWidth = pop.offsetWidth || 320;
-    var popHeight = pop.offsetHeight || 180;
-    var spaceAbove = anchor.top - 8;
-    var spaceBelow = window.innerHeight - anchor.bottom - 8;
+    var popHeight = Math.min(pop.offsetHeight || 180, available);
     var top;
 
-    if (spaceBelow >= popHeight + 12 || spaceBelow >= spaceAbove) {
-      top = Math.min(anchor.bottom + 12, window.innerHeight - popHeight - 8);
+    if (placeBelow) {
+      top = anchor.bottom + gap;
+      top = Math.min(top, viewportH - popHeight - margin);
     } else {
-      top = Math.max(8, anchor.top - popHeight - 12);
+      top = anchor.top - popHeight - gap;
     }
+    top = Math.max(margin, top);
 
     var left = anchor.left + anchor.width / 2 - popWidth / 2;
-    left = Math.max(8, Math.min(left, window.innerWidth - popWidth - 8));
+    left = Math.max(margin, Math.min(left, viewportW - popWidth - margin));
 
     pop.style.top = top + 'px';
     pop.style.left = left + 'px';
@@ -1772,6 +2181,15 @@
   function refreshAll() {
     pruneMissingReferences();
     annotations.forEach(positionPin);
+    if (measuring) {
+      measureRootFontSize = readRootFontSize();
+      if (lastMouseX >= 0) {
+        var el = resolveMeasureElement(lastMouseX, lastMouseY);
+        if (measureDragging) measureDragTarget = el;
+        else measureHoverTarget = el;
+      }
+      refreshMeasure();
+    }
     if (popover && popoverTarget) {
       positionPop(popoverTarget, popover);
       showTargetHighlight(popoverTarget);
@@ -2571,14 +2989,39 @@
   var lastMouseX = -1, lastMouseY = -1;
 
   document.addEventListener('mousedown', function (e) {
-    if (!active || !commenting || popover || e.button !== 0) return;
+    if (!active || e.button !== 0) return;
     if (isOurUI(e.target)) return;
+    if (measuring) {
+      e.preventDefault();
+      var src = resolveMeasureElement(e.clientX, e.clientY);
+      if (!src) {
+        // Mousedown on empty / skippable area — no drag, no capture change.
+        cancelMeasureDrag();
+        return;
+      }
+      measureDragging = true;
+      measureDragSource = src;
+      measureDragTarget = src;
+      refreshMeasure();
+      return;
+    }
+    if (!commenting || popover) return;
     selectionPointerDown = true;
   }, true);
 
   document.addEventListener('mousemove', function (e) {
     lastMouseX = e.clientX;
     lastMouseY = e.clientY;
+    if (measuring) {
+      if (isOurUI(e.target)) {
+        if (measureDragging) measureDragTarget = null;
+        else measureHoverTarget = null;
+        refreshMeasure();
+        return;
+      }
+      renderMeasureAt(e.clientX, e.clientY);
+      return;
+    }
     if (referencePicking) {
       if (isOurUI(e.target)) { hideOverlay(); return; }
       var refEl = document.elementFromPoint(e.clientX, e.clientY);
@@ -2599,7 +3042,21 @@
   }, true);
 
   document.addEventListener('mouseup', function (e) {
-    if (!active || !commenting || e.button !== 0) return;
+    if (!active || e.button !== 0) return;
+    if (measuring && measureDragging) {
+      e.preventDefault();
+      var endEl = resolveMeasureElement(e.clientX, e.clientY);
+      if (endEl && measureDragSource && endEl !== measureDragSource) {
+        measureCapturedSource = measureDragSource;
+        measureCapturedTarget = endEl;
+        measureHoverTarget = endEl;
+      }
+      // Invalid drag (same element or no element) — keep previous captured.
+      cancelMeasureDrag();
+      refreshMeasure();
+      return;
+    }
+    if (!commenting) return;
     if (!selectionPointerDown) return;
     selectionPointerDown = false;
 
@@ -2621,12 +3078,21 @@
       e.stopPropagation();
       return;
     }
-    if (!menuPanel.classList.contains('pp-hidden') &&
+    var menuWasOpen = !menuPanel.classList.contains('pp-hidden');
+    if (menuWasOpen &&
         !menuPanel.contains(e.target) &&
         !btnShortcuts.contains(e.target)) {
       hideMenu();
     }
     if (isOurUI(e.target)) return;
+
+    if (measuring) {
+      // Drags are handled in mousedown / mouseup. Suppress the click so links /
+      // buttons under the cursor don't activate.
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
 
     if (referencePicking && referenceEditor) {
       e.preventDefault();
@@ -2688,7 +3154,12 @@
     if (!active) return;
 
     if (popover || inputFocused()) {
-      if (e.key === 'Escape' && popover) { hidePopover(); hideTargetHighlight(); hideOverlay(); }
+      if (e.key === 'Escape' && popover) {
+        hidePopover();
+        hideTargetHighlight();
+        hideOverlay();
+        if (commenting) stopCommenting();
+      }
       return;
     }
 
@@ -2696,6 +3167,19 @@
 
     if (e.key === 'Escape') {
       if (!menuPanel.classList.contains('pp-hidden')) { hideMenu(); return; }
+      if (measuring) {
+        if (measureDragging) {
+          cancelMeasureDrag();
+          refreshMeasure();
+        } else if (measureCapturedSource || measureCapturedTarget) {
+          measureCapturedSource = null;
+          measureCapturedTarget = null;
+          refreshMeasure();
+        } else {
+          stopMeasuring();
+        }
+        return;
+      }
       if (commenting) {
         stopCommenting();
         hideTargetHighlight();
@@ -2705,6 +3189,22 @@
     }
 
     if (e.metaKey || e.ctrlKey || e.altKey) return;
+
+    // M — toggle measure mode
+    if (k === 'm') {
+      e.preventDefault();
+      measuring ? stopMeasuring() : startMeasuring();
+      resetTaps();
+      return;
+    }
+
+    // U — cycle measurement unit (only while measuring)
+    if (k === 'u' && measuring) {
+      e.preventDefault();
+      setMeasureUnit(measureUnit === 'px' ? 'rem' : 'px');
+      resetTaps();
+      return;
+    }
 
     // ── keyboard navigation (when enabled + comment mode) ──
     if (keyNavEnabled && commenting) {
@@ -2857,6 +3357,8 @@
     clearUndoState();
     clearBrowserSelection();
     selectionPointerDown = false;
+    resetMeasureState();
+    if (measuring) refreshMeasure();
     restore();
   }
 
@@ -2874,6 +3376,13 @@
 
   /* ── toolbar wiring ────────────────────────────────────── */
   btnComment.addEventListener('click', function (e) { e.stopPropagation(); commenting ? stopCommenting() : startCommenting(); });
+  btnMeasure.addEventListener('click', function (e) { e.stopPropagation(); measuring ? stopMeasuring() : startMeasuring(); });
+  unitBtns.forEach(function (b) {
+    b.addEventListener('click', function (e) {
+      e.stopPropagation();
+      setMeasureUnit(b.getAttribute('data-unit'));
+    });
+  });
   countEl.addEventListener('click', function (e) {
     e.stopPropagation();
     if (annotations.length > 0) navPillTo(annotations[0]);
