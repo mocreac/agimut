@@ -19,10 +19,16 @@
   "permissions": ["storage", "activeTab"],
   "content_scripts": [
     {
-      "matches": ["http://*/*", "https://*/*", "file:///"],
+      "matches": ["http://*/*", "https://*/*", "file:///*"],
       "js": ["content.js"],
       "css": ["content.css"],
       "run_at": "document_idle"
     }
-  ]
+  ],
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "agimut@agimut.app",
+      "strict_min_version": "109.0"
+    }
+  }
 }
