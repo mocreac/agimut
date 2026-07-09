@@ -17,17 +17,6 @@
   var referencePicking = false;
   var referenceEditor = null;
 
-  /* ── measurement state ─────────────────────────────────── */
-  var measuring = false;
-  var measureUnit = 'px';
-  var measureRootFontSize = 16;
-  var measureHoverTarget = null;     // currently hovered element (no drag)
-  var measureDragging = false;       // drag in progress
-  var measureDragSource = null;      // element where drag started
-  var measureDragTarget = null;      // element under cursor while dragging
-  var measureCapturedSource = null;  // last completed drag's source (persists)
-  var measureCapturedTarget = null;  // last completed drag's target (persists)
-
   /* ── transient selection state ─────────────────────────── */
   var highlightNodes = [];
   var selectionPointerDown = false;
@@ -39,6 +28,26 @@
 
   /* ── keyboard navigation state ──────────────────────────── */
   var keyNavEnabled = true;
+  // Controls whether the Copy toolbar button + `A` shortcut also wipes
+  // annotations after copying (mirrors what Shift+A already does).
+  var clearAfterCopy = false;
+
+  /* ── multi-target commenting state ──────────────────────── */
+  // Element targets pending commit (filled by Shift+click / Shift+Enter).
+  // When non-empty the popover renders in multi-mode and Submit creates one
+  // annotation per target with the same comment text + cloned references.
+  // Text targets are intentionally excluded — shift+drag stays the browser's
+  // native text-selection-extend gesture.
+  var multiTargets = [];
+  // targetKey -> HTMLDivElement, one sticky highlight per selected target
+  // parented to highlightLayer. Disposed when the target is toggled off or
+  // when clearMultiSelect() runs.
+  var multiHighlightNodes = new Map();
+  // Whether the live popover is rendering in multi-mode. When true,
+  // positionPop reads the union anchor from multiTargets instead of a single
+  // target rect, and refreshAll keeps the popover anchored as the selection
+  // grows / shrinks.
+  var popoverIsMulti = false;
 
   /* ── flash timer tracking (issue #9) ───────────────────── */
   var flashTimers = new Map();
@@ -55,7 +64,18 @@
     return 'pinpoint:' + location.origin + location.pathname + location.search;
   }
 
+  function getDraftKey() {
+    return 'pinpoint:draft:' + location.origin + location.pathname + location.search;
+  }
+
   var STORE_KEY = getStoreKey();
+  var DRAFT_KEY = getDraftKey();
+
+  // Drafts older than this are ignored on restore. The goal is to recover
+  // from dev-server auto-reloads (Vite HMR, Webpack devServer, etc.) and the
+  // odd accidental refresh — not to resurrect comments from yesterday's
+  // session.
+  var DRAFT_MAX_AGE_MS = 30 * 60 * 1000;
 
   function safeStorageGet(keys, done) {
     try {
@@ -101,6 +121,78 @@
     } catch (e) { /* extension context can be invalidated on reload */ }
   }
 
+  /* ── popover draft (Vite HMR / auto-refresh recovery) ─── */
+  // Drafts capture the popover's in-progress editor content so a dev-server
+  // auto-refresh (Vite HMR, Next.js fast refresh, etc.) doesn't wipe what the
+  // user was typing. Stored per-URL under DRAFT_KEY; cleared on commit, Esc,
+  // and stopCommenting — i.e., any explicit "I'm done" path.
+  function saveDraft(draft) {
+    if (!draft) return;
+    draft.savedAt = Date.now();
+    var payload = {};
+    payload[DRAFT_KEY] = draft;
+    safeStorageSet(payload);
+  }
+
+  function loadDraft(done) {
+    safeStorageGet([DRAFT_KEY], function (result) {
+      if (done) done(result[DRAFT_KEY] || null);
+    });
+  }
+
+  function clearDraft() {
+    safeStorageRemove([DRAFT_KEY]);
+  }
+
+  // Persist enough about a target to re-query its element after the page
+  // reloads. Skips el/range — those are recomputed on restore via the
+  // selector + offsets.
+  function serializeTargetForDraft(target) {
+    if (!target) return null;
+    var out = {
+      kind: target.kind,
+      selector: target.selector,
+      type: target.type,
+    };
+    if (target.kind === 'text') {
+      out.quote = target.quote || '';
+      out.textStart = target.textStart;
+      out.textEnd = target.textEnd;
+    }
+    return out;
+  }
+
+  // Re-query the DOM and rebuild a live target object from the persisted
+  // shape. Returns null when the element is missing or (for text targets)
+  // the saved offsets no longer line up — caller treats null as "draft
+  // can't be restored, drop it".
+  function resolveTargetFromDraft(data) {
+    if (!data || !data.selector) return null;
+    var el = null;
+    try { el = document.querySelector(data.selector); } catch (e) { el = null; }
+    if (!el) return null;
+    if (data.kind === 'text') {
+      var range = restoreRangeFromOffsets(el, data.textStart, data.textEnd, data.quote);
+      if (!range) return null;
+      return prepareTarget({
+        kind: 'text',
+        el: el,
+        selector: data.selector,
+        type: data.type || 'text',
+        quote: data.quote || '',
+        textStart: data.textStart,
+        textEnd: data.textEnd,
+        range: range,
+      });
+    }
+    return prepareTarget({
+      kind: 'element',
+      el: el,
+      selector: data.selector,
+      type: data.type || typeName(el),
+    });
+  }
+
   function safeRuntimeOnMessage(handler) {
     try {
       if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.onMessage) return;
@@ -139,8 +231,8 @@
     check:       'M229.66,77.66l-128,128a8,8,0,0,1-11.32,0l-56-56a8,8,0,0,1,11.32-11.32L96,188.69,218.34,66.34a8,8,0,0,1,11.32,11.32Z',
     undo:        'M224,128a96,96,0,0,1-94.71,96H128A95.38,95.38,0,0,1,62.1,197.8a8,8,0,0,1,11-11.63A80,80,0,1,0,71.43,71.39a3.07,3.07,0,0,1-.26.25L44.59,96H72a8,8,0,0,1,0,16H24a8,8,0,0,1-8-8V56a8,8,0,0,1,16,0V85.8L60.25,60A96,96,0,0,1,224,128Z',
     sliders:     'M64,105V40a8,8,0,0,0-16,0v65a32,32,0,0,0,0,62v49a8,8,0,0,0,16,0V167a32,32,0,0,0,0-62Zm-8,47a16,16,0,1,1,16-16A16,16,0,0,1,56,152Zm80-95V40a8,8,0,0,0-16,0V57a32,32,0,0,0,0,62v97a8,8,0,0,0,16,0V119a32,32,0,0,0,0-62Zm-8,47a16,16,0,1,1,16-16A16,16,0,0,1,128,104Zm104,64a32.06,32.06,0,0,0-24-31V40a8,8,0,0,0-16,0v97a32,32,0,0,0,0,62v17a8,8,0,0,0,16,0V199A32.06,32.06,0,0,0,232,168Zm-32,16a16,16,0,1,1,16-16A16,16,0,0,1,200,184Z',
-    crosshair:   'M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm8,191.63V184a8,8,0,0,0-16,0v31.63A88.13,88.13,0,0,1,40.37,136H72a8,8,0,0,0,0-16H40.37A88.13,88.13,0,0,1,120,40.37V72a8,8,0,0,0,16,0V40.37A88.13,88.13,0,0,1,215.63,120H184a8,8,0,0,0,0,16h31.63A88.13,88.13,0,0,1,136,215.63Z',
-    ruler:       'M235.32,73.37,182.63,20.69a16,16,0,0,0-22.63,0L20.68,160a16,16,0,0,0,0,22.63l52.69,52.68a16,16,0,0,0,22.63,0L235.32,96A16,16,0,0,0,235.32,73.37ZM84.68,224,32,171.31l32-32,26.34,26.35a8,8,0,0,0,11.32-11.32L75.31,128,96,107.31l26.34,26.35a8,8,0,0,0,11.32-11.32L107.31,96,128,75.31l26.34,26.35a8,8,0,0,0,11.32-11.32L139.31,64l32-32L224,84.68Z',
+    eyedropper:  'M224,67.3a35.79,35.79,0,0,0-11.26-25.66c-14-13.28-36.72-12.78-50.62,1.13L142.8,62.2a24,24,0,0,0-33.14.77l-9,9a16,16,0,0,0,0,22.64l2,2.06-51,51a39.75,39.75,0,0,0-10.53,38l-8,18.41A13.68,13.68,0,0,0,36,219.3a15.92,15.92,0,0,0,17.71,3.35L71.23,215a39.89,39.89,0,0,0,37.06-10.75l51-51,2.06,2.06a16,16,0,0,0,22.62,0l9-9a24,24,0,0,0,.74-33.18l19.75-19.87A35.75,35.75,0,0,0,224,67.3ZM97,193a24,24,0,0,1-24,6,8,8,0,0,0-5.55.31l-18.1,7.91L57,189.41a8,8,0,0,0,.25-5.75A23.88,23.88,0,0,1,63,159l51-51,33.94,34ZM202.13,82l-25.37,25.52a8,8,0,0,0,0,11.3l4.89,4.89a8,8,0,0,1,0,11.32l-9,9L112,83.26l9-9a8,8,0,0,1,11.31,0l4.89,4.89a8,8,0,0,0,11.33,0l24.94-25.09c7.81-7.82,20.5-8.18,28.29-.81a20,20,0,0,1,.39,28.7Z',
+    pencilSimple:'M227.31,73.37,182.63,28.68a16,16,0,0,0-22.63,0L36.69,152A15.86,15.86,0,0,0,32,163.31V208a16,16,0,0,0,16,16H92.69A15.86,15.86,0,0,0,104,219.31L227.31,96a16,16,0,0,0,0-22.63ZM92.69,208H48V163.31l88-88L180.69,120ZM192,108.68,147.31,64l24-24L216,84.68Z',
   };
 
   var ico = {
@@ -155,8 +247,16 @@
     check:    ph(P.check),
     undo:     ph(P.undo),
     sliders:  ph(P.sliders),
-    crosshair: ph(P.crosshair),
-    ruler:    ph(P.ruler),
+    // Phosphor "EyedropperSample" (regular, stroke-based): the canonical
+    // color-picker glyph for the reference-element button. Rendered inline
+    // rather than via ph() because ph() only emits fill paths.
+    eyedropper:
+      '<svg width="18" height="18" viewBox="0 0 256 256" fill="none" stroke="currentColor" stroke-width="16" stroke-linecap="round" stroke-linejoin="round">' +
+        '<path d="M182.43,113.17l4.88,4.89a16,16,0,0,1,0,22.63l-9,9a8,8,0,0,1-11.31,0L106.34,89a8,8,0,0,1,0-11.31l9-9a16,16,0,0,1,22.63,0l4.89,4.88,25-25.1c10.79-10.79,28.37-11.45,39.44-1a28,28,0,0,1,.57,40.15Z"/>' +
+        '<path d="M159.31,141.94l-56.68,56.69a32,32,0,0,1-32.06,8h0l-20,8.74a8,8,0,0,1-8.86-1.67h0a5.74,5.74,0,0,1-1.2-6.36l9.19-21.06h0a32,32,0,0,1,7.7-32.87l56.69-56.68"/>' +
+        '<line x1="52.28" y1="160" x2="141.25" y2="160"/>' +
+      '</svg>',
+    pencilPin: ph(P.pencilSimple, 14),
   };
 
   var logoSvg = '<svg width="22" height="17" viewBox="83 68 378 289" fill="none" stroke="currentColor" stroke-width="40" stroke-linecap="round" stroke-linejoin="round"><path d="M113.279 198.073L225.785 327.192V98.2M225.785 327.192L331.751 122.192H430.911"/></svg>';
@@ -183,11 +283,6 @@
   pinLayer.className = 'pp-pin-layer';
   root.appendChild(pinLayer);
 
-  var measureLayer = document.createElement('div');
-  measureLayer.className = 'pp-measure-layer pp-hidden';
-  measureLayer.setAttribute('aria-hidden', 'true');
-  root.appendChild(measureLayer);
-
   // toolbar
   var bar = document.createElement('div');
   bar.className = 'pp-bar pp-hidden';
@@ -196,23 +291,22 @@
     '<span class="pp-count pp-hidden"></span>' +
     '<div class="pp-bar-sep"></div>' +
     '<button class="pp-bar-btn pp-btn-copy" data-tip="Copy all" data-keys="A" aria-label="Copy all">' + ico.copy + '</button>' +
-    '<button class="pp-bar-btn pp-btn-send" data-tip="Copy & clear" data-keys="Shift,A" aria-label="Copy and clear">' + ico.send + '</button>' +
-    '<div class="pp-bar-sep"></div>' +
-    '<button class="pp-bar-btn pp-btn-measure" data-tip="Measure" data-keys="M" aria-label="Measure">' + ico.ruler + '</button>' +
-    '<div class="pp-unit-toggle pp-hidden" role="group" aria-label="Measurement unit">' +
-      '<button class="pp-unit-btn pp-unit-active" data-unit="px" aria-pressed="true">px</button>' +
-      '<button class="pp-unit-btn" data-unit="rem" aria-pressed="false">rem</button>' +
-    '</div>' +
-    '<div class="pp-bar-sep"></div>' +
     '<button class="pp-bar-btn pp-btn-delete" data-tip="Delete all" data-keys="X,X,X" aria-label="Delete all">' + ico.trash + '</button>' +
     '<div class="pp-bar-sep"></div>' +
-    '<button class="pp-bar-btn pp-btn-shortcuts" data-tip="Menu" aria-label="Menu">' + ico.sliders + '</button>' +
+    '<button class="pp-bar-btn pp-btn-shortcuts" data-tip="Settings" aria-label="Settings">' + ico.sliders + '</button>' +
     '<button class="pp-bar-btn pp-btn-close" data-tip="Close" data-keys="Esc" aria-label="Close">' + ico.close + '</button>';
   root.appendChild(bar);
 
   var barTip = document.createElement('div');
   barTip.className = 'pp-bar-tip';
   root.appendChild(barTip);
+
+  // Floating tooltip for pin hover — shows a preview of the annotation
+  // comment so users can scan annotations without clicking each pin open.
+  var pinTip = document.createElement('div');
+  pinTip.className = 'pp-pin-tip';
+  pinTip.setAttribute('role', 'tooltip');
+  root.appendChild(pinTip);
 
   var toast = document.createElement('div');
   toast.className = 'pp-toast pp-hidden';
@@ -264,36 +358,34 @@
           '<span class="pp-switch-track"></span>' +
         '</label>' +
       '</div>' +
+      '<div class="pp-menu-row">' +
+        '<span class="pp-menu-label">Clear after copy</span>' +
+        '<label class="pp-switch-label">' +
+          '<input type="checkbox" class="pp-switch-input pp-clearcopy-toggle">' +
+          '<span class="pp-switch-track"></span>' +
+        '</label>' +
+      '</div>' +
     '</div>' +
     '<div class="pp-menu-divider"></div>' +
     '<div class="pp-menu-section">' +
       '<div class="pp-sc-title">Shortcuts</div>' +
       '<div class="pp-sc-row"><span class="pp-sc-label">Comment mode</span><div class="pp-sc-keys"><kbd class="pp-key">C</kbd></div></div>' +
-      '<div class="pp-sc-row"><span class="pp-sc-label">Measure mode</span><div class="pp-sc-keys"><kbd class="pp-key">M</kbd></div></div>' +
-      '<div class="pp-sc-row"><span class="pp-sc-label">Toggle px / rem</span><div class="pp-sc-keys"><kbd class="pp-key">U</kbd></div></div>' +
       '<div class="pp-sc-row"><span class="pp-sc-label">Copy annotations</span><div class="pp-sc-keys"><kbd class="pp-key">A</kbd></div></div>' +
       '<div class="pp-sc-row"><span class="pp-sc-label">Copy & clear</span><div class="pp-sc-keys"><kbd class="pp-key">Shift</kbd><kbd class="pp-key">A</kbd></div></div>' +
       '<div class="pp-sc-row"><span class="pp-sc-label">Delete all</span><div class="pp-sc-keys"><kbd class="pp-key">X</kbd><kbd class="pp-key">X</kbd><kbd class="pp-key">X</kbd></div></div>' +
       '<div class="pp-sc-row"><span class="pp-sc-label">Undo delete</span><div class="pp-sc-keys"><kbd class="pp-key">Z</kbd></div></div>' +
-      '<div class="pp-sc-row"><span class="pp-sc-label">Close</span><div class="pp-sc-keys"><kbd class="pp-key">Esc</kbd></div></div>' +
     '</div>' +
     '<div class="pp-menu-divider"></div>' +
     '<div class="pp-menu-section">' +
       '<div class="pp-sc-title">Navigation</div>' +
       '<div class="pp-sc-row"><span class="pp-sc-label">Move selection</span><div class="pp-sc-keys"><kbd class="pp-key">\u2190</kbd><kbd class="pp-key">\u2191</kbd><kbd class="pp-key">\u2193</kbd><kbd class="pp-key">\u2192</kbd></div></div>' +
       '<div class="pp-sc-row"><span class="pp-sc-label">Parent / child</span><div class="pp-sc-keys"><kbd class="pp-key">Shift</kbd><kbd class="pp-key">\u2191</kbd><kbd class="pp-key">\u2193</kbd></div></div>' +
-      '<div class="pp-sc-row"><span class="pp-sc-label">Cycle elements</span><div class="pp-sc-keys"><kbd class="pp-key">Tab</kbd></div></div>' +
-      '<div class="pp-sc-row"><span class="pp-sc-label">Annotate</span><div class="pp-sc-keys"><kbd class="pp-key">Enter</kbd></div></div>' +
     '</div>';
   root.appendChild(menuPanel);
 
   /* ── button refs ───────────────────────────────────────── */
   var btnComment = bar.querySelector('.pp-btn-comment');
-  var btnMeasure = bar.querySelector('.pp-btn-measure');
-  var unitToggle = bar.querySelector('.pp-unit-toggle');
-  var unitBtns   = bar.querySelectorAll('.pp-unit-btn');
   var btnCopy    = bar.querySelector('.pp-btn-copy');
-  var btnSend    = bar.querySelector('.pp-btn-send');
   var btnDelete  = bar.querySelector('.pp-btn-delete');
   var btnClose      = bar.querySelector('.pp-btn-close');
   var btnShortcuts  = bar.querySelector('.pp-btn-shortcuts');
@@ -314,6 +406,27 @@
     return 'bottom-left';
   }
 
+  /* Spacing constants for the fixed UI stack (toolbar → nav pill → toast).
+     Everything below is computed so gaps stay equal even if one element's
+     height changes. Anchor is the bar at MAIN_OFFSET from the screen edge,
+     then each stacked element sits STACK_GAP below the previous one. */
+  var MAIN_OFFSET = 20;       // distance from screen edge to bar
+  var STACK_GAP = 4;          // even gap between stacked elements
+  var TOOLBAR_HEIGHT = 52;    // matches --pp-toolbar-size (38 + 6*2 + 2)
+  var NAV_PILL_HEIGHT = 40;   // 30 (nav-btn) + 4*2 (padding) + 2 (border)
+
+  function stackOffsetPx() {
+    return MAIN_OFFSET + TOOLBAR_HEIGHT + STACK_GAP;
+  }
+
+  function toastOffsetPx() {
+    var base = stackOffsetPx();
+    if (!navPillActive) return base;
+    // Prefer actual measured height; fall back to constant if hidden.
+    var h = navPill.offsetHeight || NAV_PILL_HEIGHT;
+    return base + h + STACK_GAP;
+  }
+
   function applyToolbarPosition(position) {
     var pos = normalizeToolbarPosition(position);
     var isTop = pos.indexOf('top-') === 0;
@@ -329,20 +442,21 @@
       el.style.transform = '';
     });
 
-    var mainOffset = isTop ? '20px' : '20px';
-    var stackOffset = isTop ? '76px' : '76px';
+    var mainOffset = MAIN_OFFSET + 'px';
+    var stackOffset = stackOffsetPx() + 'px';
+    var toastOffset = toastOffsetPx() + 'px';
 
     if (isTop) {
       bar.style.top = mainOffset;
       toggle.style.top = mainOffset;
       menuPanel.style.top = stackOffset;
-      toast.style.top = stackOffset;
+      toast.style.top = toastOffset;
       navPill.style.top = stackOffset;
     } else {
       bar.style.bottom = mainOffset;
       toggle.style.bottom = mainOffset;
       menuPanel.style.bottom = stackOffset;
-      toast.style.bottom = stackOffset;
+      toast.style.bottom = toastOffset;
       navPill.style.bottom = stackOffset;
     }
 
@@ -374,40 +488,50 @@
     var collapsedSize = bar.offsetHeight;
     var collapsedRadius = window.getComputedStyle(toggle).borderRadius || '18px';
 
-    // Collapse to toggle size
+    // Snap to the blurred + collapsed source state with no transitions, so
+    // the blur reads as a punctuation at the START of the open. The
+    // follow-up transition then de-blurs while the bar expands — by the
+    // time the geometric animation finishes the bar is crisp again,
+    // mirroring how deactivate() collapses clean.
     bar.style.width = collapsedSize + 'px';
     bar.style.borderRadius = collapsedRadius;
     bar.style.overflow = 'hidden';
+    bar.style.filter = 'blur(2px)';
     void bar.offsetWidth;
     bar.style.visibility = '';
 
-    // Animate expansion
-    bar.style.transition = 'width 300ms cubic-bezier(0.25, 1, 0.5, 1), border-radius 300ms cubic-bezier(0.25, 1, 0.5, 1)';
-    requestAnimationFrame(function () {
-      bar.style.width = fullWidth + 'px';
-      bar.style.borderRadius = '';
-    });
+    // Animate expansion + un-blur
+    bar.style.transition = 'width 140ms cubic-bezier(0.2, 0, 0, 1), border-radius 140ms cubic-bezier(0.2, 0, 0, 1), filter 80ms cubic-bezier(0.2, 0, 0, 1)';
+    bar.style.width = fullWidth + 'px';
+    bar.style.borderRadius = '';
+    bar.style.filter = 'blur(0)';
 
     morphTimer = setTimeout(function () {
       bar.style.transition = '';
       bar.style.width = '';
       bar.style.borderRadius = '';
       bar.style.overflow = '';
-    }, 320);
+      bar.style.filter = '';
+    }, 160);
 
     pinLayer.classList.remove('pp-hidden');
     startCommenting();
   }
 
-  function deactivate() {
+  // `disableSite` = the user explicitly turned Agimut off for this domain
+  // (the toolbar's close button), not just a transient collapse. When true we
+  // persist the domain into disabledHosts so a refresh keeps it off, and leave
+  // the toggle hidden instead of restoring it. Re-enable is via the popup.
+  function deactivate(disableSite) {
     active = false;
-    stopMeasuring();
+    if (disableSite) persistSiteDisabled();
     stopCommenting();
     hidePopover();
     hideTargetHighlight();
     hideOverlay();
     hideMenu();
     hideBarTip();
+    hidePinTip();
     clearUndoState();
     clearBrowserSelection();
     selectionPointerDown = false;
@@ -436,29 +560,40 @@
     var curWidth = bar.offsetWidth;
     var collapsedSize = bar.offsetHeight;
     var collapsedRadius = window.getComputedStyle(toggle).borderRadius || '18px';
+    // Snap to the blurred state instantly (no filter transition) so the
+    // blur reads as a punctuation at the START of the close, not a smear
+    // that's still happening at the end. The follow-up transition then
+    // fades the blur back to 0 while the bar continues collapsing — the
+    // collapse finishes clean, mirroring how activate() opens.
+    bar.style.transition = 'none';
     bar.style.width = curWidth + 'px';
     bar.style.overflow = 'hidden';
+    bar.style.filter = 'blur(2px)';
     void bar.offsetWidth;
 
-    bar.style.transition = 'width 250ms cubic-bezier(0.5, 0, 0.75, 0), border-radius 250ms cubic-bezier(0.5, 0, 0.75, 0)';
+    bar.style.transition = 'width 140ms cubic-bezier(0.2, 0, 0, 1), border-radius 140ms cubic-bezier(0.2, 0, 0, 1), filter 80ms cubic-bezier(0.2, 0, 0, 1)';
     bar.style.width = collapsedSize + 'px';
     bar.style.borderRadius = collapsedRadius;
+    bar.style.filter = 'blur(0)';
 
     morphTimer = setTimeout(function () {
       bar.style.transition = '';
       bar.style.width = '';
       bar.style.borderRadius = '';
       bar.style.overflow = '';
+      bar.style.filter = '';
       bar.classList.add('pp-hidden');
-      toggle.classList.remove('pp-hidden');
-    }, 270);
+      // Keep the toggle hidden when the user disabled the whole site; only a
+      // transient collapse restores the re-open button.
+      if (disableSite) toggle.classList.add('pp-hidden');
+      else toggle.classList.remove('pp-hidden');
+    }, 160);
 
     pinLayer.classList.add('pp-hidden');
   }
 
   /* ── comment mode ──────────────────────────────────────── */
   function startCommenting() {
-    if (measuring) stopMeasuring();
     commenting = true;
     btnComment.classList.add('pp-active-btn');
     document.documentElement.classList.add('pp-commenting');
@@ -469,342 +604,22 @@
     btnComment.classList.remove('pp-active-btn');
     document.documentElement.classList.remove('pp-commenting');
     hideOverlay();
-  }
-
-  /* ── measure mode ──────────────────────────────────────── */
-  function startMeasuring() {
-    if (commenting) stopCommenting();
-    if (popover) {
-      hidePopover();
-      hideTargetHighlight();
-    }
-    measuring = true;
-    resetMeasureState();
-    btnMeasure.classList.add('pp-active-btn');
-    unitToggle.classList.remove('pp-hidden');
-    document.documentElement.classList.add('pp-measuring');
-    measureLayer.classList.remove('pp-hidden');
-    measureRootFontSize = readRootFontSize();
-    if (lastMouseX >= 0) renderMeasureAt(lastMouseX, lastMouseY);
-  }
-
-  function stopMeasuring() {
-    measuring = false;
-    resetMeasureState();
-    btnMeasure.classList.remove('pp-active-btn');
-    unitToggle.classList.add('pp-hidden');
-    document.documentElement.classList.remove('pp-measuring');
-    clearMeasureOverlay();
-    measureLayer.classList.add('pp-hidden');
-  }
-
-  function resetMeasureState() {
-    measureHoverTarget = null;
-    measureDragging = false;
-    measureDragSource = null;
-    measureDragTarget = null;
-    measureCapturedSource = null;
-    measureCapturedTarget = null;
-  }
-
-  function cancelMeasureDrag() {
-    measureDragging = false;
-    measureDragSource = null;
-    measureDragTarget = null;
-  }
-
-  function setMeasureUnit(unit) {
-    if (unit !== 'px' && unit !== 'rem') return;
-    if (unit === measureUnit) return;
-    measureUnit = unit;
-    unitBtns.forEach(function (b) {
-      var active = b.getAttribute('data-unit') === unit;
-      b.classList.toggle('pp-unit-active', active);
-      b.setAttribute('aria-pressed', active ? 'true' : 'false');
-    });
-    if (measuring) refreshMeasure();
-  }
-
-  function readRootFontSize() {
-    var n = parseFloat(getComputedStyle(document.documentElement).fontSize);
-    return n > 0 ? n : 16;
-  }
-
-  function formatLen(px) {
-    if (measureUnit === 'rem') {
-      var v = px / measureRootFontSize;
-      var s = v.toFixed(3);
-      s = s.replace(/\.?0+$/, '');
-      if (s === '' || s === '-') s = '0';
-      return s + 'rem';
-    }
-    return Math.round(px) + 'px';
-  }
-
-  function clearMeasureOverlay() {
-    while (measureLayer.firstChild) measureLayer.removeChild(measureLayer.firstChild);
-  }
-
-  function makeMeasureNode(cls, x, y, w, h) {
-    var n = document.createElement('div');
-    n.className = cls;
-    if (x !== undefined) n.style.left = x + 'px';
-    if (y !== undefined) n.style.top = y + 'px';
-    if (w !== undefined) n.style.width = w + 'px';
-    if (h !== undefined) n.style.height = h + 'px';
-    measureLayer.appendChild(n);
-    return n;
-  }
-
-  function makeMeasureLabel(cls, x, y, text) {
-    var n = document.createElement('div');
-    n.className = cls;
-    n.textContent = text;
-    n.style.left = x + 'px';
-    n.style.top = y + 'px';
-    measureLayer.appendChild(n);
-    return n;
-  }
-
-  function renderAnatomy(el, role, minimal) {
-    if (!el || !el.isConnected) return null;
-    var rect = el.getBoundingClientRect();
-    if (rect.width < 1 || rect.height < 1) return null;
-
-    // Anatomy (box-model padding/margin tints + per-side numeric labels) is
-    // disabled for now — only outline, pin dot, and W × H chip render.
-    // To re-enable, restore the commented block below and respect `minimal`.
-    /*
-    var cs = getComputedStyle(el);
-    var pt = Math.max(0, parseFloat(cs.paddingTop)  || 0);
-    var pr = Math.max(0, parseFloat(cs.paddingRight) || 0);
-    var pb = Math.max(0, parseFloat(cs.paddingBottom) || 0);
-    var pl = Math.max(0, parseFloat(cs.paddingLeft) || 0);
-    var mt = Math.max(0, parseFloat(cs.marginTop) || 0);
-    var mr = Math.max(0, parseFloat(cs.marginRight) || 0);
-    var mb = Math.max(0, parseFloat(cs.marginBottom) || 0);
-    var ml = Math.max(0, parseFloat(cs.marginLeft) || 0);
-    var bt = Math.max(0, parseFloat(cs.borderTopWidth) || 0);
-    var br_ = Math.max(0, parseFloat(cs.borderRightWidth) || 0);
-    var bb = Math.max(0, parseFloat(cs.borderBottomWidth) || 0);
-    var bl = Math.max(0, parseFloat(cs.borderLeftWidth) || 0);
-
-    if (!minimal) {
-      // Margin strips (outside border-box). Left/right include the corners.
-      if (mt > 0) makeMeasureNode('pp-measure-margin', rect.left, rect.top - mt, rect.width, mt);
-      if (mb > 0) makeMeasureNode('pp-measure-margin', rect.left, rect.bottom, rect.width, mb);
-      if (ml > 0) makeMeasureNode('pp-measure-margin', rect.left - ml, rect.top - mt, ml, rect.height + mt + mb);
-      if (mr > 0) makeMeasureNode('pp-measure-margin', rect.right, rect.top - mt, mr, rect.height + mt + mb);
-
-      // Padding strips (inside border, outside content). Corners owned by top/bottom.
-      var pInnerW = Math.max(0, rect.width - bl - br_);
-      var pInnerH = Math.max(0, rect.height - bt - bb);
-      if (pt > 0) makeMeasureNode('pp-measure-padding', rect.left + bl, rect.top + bt, pInnerW, pt);
-      if (pb > 0) makeMeasureNode('pp-measure-padding', rect.left + bl, rect.bottom - bb - pb, pInnerW, pb);
-      if (pl > 0) makeMeasureNode('pp-measure-padding', rect.left + bl, rect.top + bt + pt, pl, Math.max(0, pInnerH - pt - pb));
-      if (pr > 0) makeMeasureNode('pp-measure-padding', rect.right - br_ - pr, rect.top + bt + pt, pr, Math.max(0, pInnerH - pt - pb));
-    }
-    */
-
-    // Outline
-    var outlineCls = 'pp-measure-outline pp-measure-outline-' + (role || 'hover');
-    makeMeasureNode(outlineCls, rect.left, rect.top, rect.width, rect.height);
-
-    // Pin dot for source
-    if (role === 'source') {
-      makeMeasureNode('pp-measure-pin-dot', rect.left - 3, rect.top - 3);
-    }
-
-    /*
-    if (!minimal) {
-      // Padding numeric labels (centered on each strip)
-      if (pt > 0) makeMeasureLabel('pp-measure-edge pp-measure-edge-pad', rect.left + rect.width / 2, rect.top + bt + pt / 2, formatLen(pt));
-      if (pb > 0) makeMeasureLabel('pp-measure-edge pp-measure-edge-pad', rect.left + rect.width / 2, rect.bottom - bb - pb / 2, formatLen(pb));
-      if (pl > 0) makeMeasureLabel('pp-measure-edge pp-measure-edge-pad', rect.left + bl + pl / 2, rect.top + rect.height / 2, formatLen(pl));
-      if (pr > 0) makeMeasureLabel('pp-measure-edge pp-measure-edge-pad', rect.right - br_ - pr / 2, rect.top + rect.height / 2, formatLen(pr));
-
-      // Margin numeric labels
-      if (mt > 0) makeMeasureLabel('pp-measure-edge pp-measure-edge-mar', rect.left + rect.width / 2, rect.top - mt / 2, formatLen(mt));
-      if (mb > 0) makeMeasureLabel('pp-measure-edge pp-measure-edge-mar', rect.left + rect.width / 2, rect.bottom + mb / 2, formatLen(mb));
-      if (ml > 0) makeMeasureLabel('pp-measure-edge pp-measure-edge-mar', rect.left - ml / 2, rect.top + rect.height / 2, formatLen(ml));
-      if (mr > 0) makeMeasureLabel('pp-measure-edge pp-measure-edge-mar', rect.right + mr / 2, rect.top + rect.height / 2, formatLen(mr));
-    }
-    */
-
-    // W × H chip — only on solo hover. When a pair is being measured the
-    // distance label is what matters; chips on both ends collide in the gap.
-    if (!minimal) {
-      var sizeText = formatLen(rect.width) + ' × ' + formatLen(rect.height);
-      var sizeY = rect.top - 24;
-      if (sizeY < 4) sizeY = rect.bottom + 6;
-      var chip = makeMeasureLabel('pp-measure-size', rect.left + rect.width / 2, sizeY, sizeText);
-      chip.setAttribute('data-role', role || 'hover');
-    }
-
-    return rect;
-  }
-
-  function refreshMeasure() {
-    if (!measuring) return;
-    clearMeasureOverlay();
-
-    // Drop any stale element refs whose nodes have been removed.
-    if (measureCapturedSource && !measureCapturedSource.isConnected) measureCapturedSource = null;
-    if (measureCapturedTarget && !measureCapturedTarget.isConnected) measureCapturedTarget = null;
-    if (measureDragSource && !measureDragSource.isConnected) cancelMeasureDrag();
-    if (measureDragTarget && !measureDragTarget.isConnected) measureDragTarget = null;
-
-    // Drag in progress takes precedence over captured/hover.
-    if (measureDragging && measureDragSource) {
-      var hasDragPair = measureDragTarget && measureDragTarget !== measureDragSource;
-      // While the cursor is still on the source, show full anatomy. Once it
-      // reaches a different element, the pair is what matters — hide both
-      // anatomies so the distance reads cleanly.
-      renderAnatomy(measureDragSource, 'source', hasDragPair);
-      if (hasDragPair) {
-        renderAnatomy(measureDragTarget, 'target', true);
-        renderDistance(measureDragSource, measureDragTarget);
-      }
-      return;
-    }
-
-    var hasCaptured = measureCapturedSource && measureCapturedTarget &&
-                      measureCapturedSource !== measureCapturedTarget;
-
-    if (hasCaptured) {
-      renderAnatomy(measureCapturedSource, 'source', true);
-      renderAnatomy(measureCapturedTarget, 'target', true);
-      renderDistance(measureCapturedSource, measureCapturedTarget);
-      // A third element being inspected still gets full anatomy.
-      if (measureHoverTarget &&
-          measureHoverTarget !== measureCapturedSource &&
-          measureHoverTarget !== measureCapturedTarget &&
-          measureHoverTarget.isConnected) {
-        renderAnatomy(measureHoverTarget, 'hover', false);
-      }
-      return;
-    }
-
-    if (measureHoverTarget && measureHoverTarget.isConnected) {
-      renderAnatomy(measureHoverTarget, 'hover', false);
-    }
-  }
-
-  function resolveMeasureElement(x, y) {
-    var el = document.elementFromPoint(x, y);
-    if (!el || isSkippable(el) || isOurUI(el)) return null;
-    return el;
-  }
-
-  function renderMeasureAt(x, y) {
-    if (!measuring) return;
-    var el = resolveMeasureElement(x, y);
-    if (measureDragging) {
-      measureDragTarget = el;
-    } else {
-      measureHoverTarget = el;
-    }
-    refreshMeasure();
-  }
-
-  function nearEdges(a, b) {
-    // Returns {dx, dy, ax, ay, bx, by} describing the closest-edge pair between rects a and b.
-    // ax/ay = coordinate of A's near edge; bx/by = coordinate of B's near edge.
-    // dx/dy >= 0; if 0, the rects overlap on that axis.
-    var dx = 0, dy = 0;
-    var ax, ay, bx, by;
-    if (b.left >= a.right) { dx = b.left - a.right; ax = a.right; bx = b.left; }
-    else if (a.left >= b.right) { dx = a.left - b.right; ax = a.left; bx = b.right; }
-    else { ax = bx = (Math.max(a.left, b.left) + Math.min(a.right, b.right)) / 2; }
-
-    if (b.top >= a.bottom) { dy = b.top - a.bottom; ay = a.bottom; by = b.top; }
-    else if (a.top >= b.bottom) { dy = a.top - b.bottom; ay = a.top; by = b.bottom; }
-    else { ay = by = (Math.max(a.top, b.top) + Math.min(a.bottom, b.bottom)) / 2; }
-
-    return { dx: dx, dy: dy, ax: ax, ay: ay, bx: bx, by: by };
-  }
-
-  function rectContains(outer, inner) {
-    // True if inner is fully contained within outer (touching edges allowed).
-    return inner.left >= outer.left - 0.5 && inner.right <= outer.right + 0.5 &&
-           inner.top >= outer.top - 0.5 && inner.bottom <= outer.bottom + 0.5;
-  }
-
-  function renderContainment(outer, inner) {
-    // 4 inner-edge gaps from outer to inner. Skip zero-width gaps.
-    var top    = Math.max(0, inner.top - outer.top);
-    var bottom = Math.max(0, outer.bottom - inner.bottom);
-    var left   = Math.max(0, inner.left - outer.left);
-    var right  = Math.max(0, outer.right - inner.right);
-
-    var midX = inner.left + inner.width / 2;
-    var midY = inner.top + inner.height / 2;
-
-    if (top > 0) {
-      makeMeasureNode('pp-measure-projection pp-measure-projection-v', midX - 0.5, outer.top, 1, top);
-      makeMeasureLabel('pp-measure-dist pp-measure-dist-inner', midX + 8, outer.top + top / 2, formatLen(top));
-    }
-    if (bottom > 0) {
-      makeMeasureNode('pp-measure-projection pp-measure-projection-v', midX - 0.5, inner.bottom, 1, bottom);
-      makeMeasureLabel('pp-measure-dist pp-measure-dist-inner', midX + 8, inner.bottom + bottom / 2, formatLen(bottom));
-    }
-    if (left > 0) {
-      makeMeasureNode('pp-measure-projection pp-measure-projection-h', outer.left, midY - 0.5, left, 1);
-      makeMeasureLabel('pp-measure-dist pp-measure-dist-inner', outer.left + left / 2, midY - 10, formatLen(left));
-    }
-    if (right > 0) {
-      makeMeasureNode('pp-measure-projection pp-measure-projection-h', inner.right, midY - 0.5, right, 1);
-      makeMeasureLabel('pp-measure-dist pp-measure-dist-inner', inner.right + right / 2, midY - 10, formatLen(right));
-    }
-  }
-
-  function renderDistance(srcEl, tgtEl) {
-    if (!srcEl || !tgtEl || srcEl === tgtEl) return;
-    var a = srcEl.getBoundingClientRect();
-    var b = tgtEl.getBoundingClientRect();
-    if (a.width < 1 || a.height < 1 || b.width < 1 || b.height < 1) return;
-
-    // Containment cases: one element fully inside the other → 4 inner-edge gaps.
-    if (rectContains(a, b)) { renderContainment(a, b); return; }
-    if (rectContains(b, a)) { renderContainment(b, a); return; }
-
-    var n = nearEdges(a, b);
-
-    if (n.dx === 0 && n.dy === 0) return; // partial overlap — no clean gap to measure
-
-    if (n.dx > 0 && n.dy === 0) {
-      // Aligned: horizontal gap
-      var x1 = Math.min(n.ax, n.bx), x2 = Math.max(n.ax, n.bx);
-      var line = makeMeasureNode('pp-measure-line pp-measure-line-h', x1, n.ay - 0.5, x2 - x1, 1);
-      makeMeasureNode('pp-measure-tick pp-measure-tick-v', n.ax - 0.5, n.ay - 4, 1, 8);
-      makeMeasureNode('pp-measure-tick pp-measure-tick-v', n.bx - 0.5, n.ay - 4, 1, 8);
-      makeMeasureLabel('pp-measure-dist', (x1 + x2) / 2, n.ay - 12, formatLen(n.dx));
-      return;
-    }
-    if (n.dy > 0 && n.dx === 0) {
-      // Aligned: vertical gap
-      var y1 = Math.min(n.ay, n.by), y2 = Math.max(n.ay, n.by);
-      makeMeasureNode('pp-measure-line pp-measure-line-v', n.ax - 0.5, y1, 1, y2 - y1);
-      makeMeasureNode('pp-measure-tick pp-measure-tick-h', n.ax - 4, n.ay - 0.5, 8, 1);
-      makeMeasureNode('pp-measure-tick pp-measure-tick-h', n.ax - 4, n.by - 0.5, 8, 1);
-      makeMeasureLabel('pp-measure-dist', n.ax + 8, (y1 + y2) / 2, formatLen(n.dy));
-      return;
-    }
-    // Offset: L-shape
-    // Pick A's near corner (ax, ay) and B's near corner (bx, by).
-    // Horizontal projection runs at y = ay from ax to bx.
-    // Vertical projection runs at x = bx from ay to by.
-    var hx1 = Math.min(n.ax, n.bx), hx2 = Math.max(n.ax, n.bx);
-    var vy1 = Math.min(n.ay, n.by), vy2 = Math.max(n.ay, n.by);
-    makeMeasureNode('pp-measure-projection pp-measure-projection-h', hx1, n.ay - 0.5, hx2 - hx1, 1);
-    makeMeasureNode('pp-measure-projection pp-measure-projection-v', n.bx - 0.5, vy1, 1, vy2 - vy1);
-    makeMeasureLabel('pp-measure-dist', (hx1 + hx2) / 2, n.ay - 12, formatLen(n.dx));
-    makeMeasureLabel('pp-measure-dist', n.bx + 8, (vy1 + vy2) / 2, formatLen(n.dy));
+    // Leaving comment mode drops any pending multi-select batch — the locked
+    // highlights would otherwise sit on the page with no way to commit them.
+    // Close the multi popover too; its chip count would be stale once the
+    // batch is cleared.
+    if (popoverIsMulti) hidePopover();
+    clearMultiSelect();
+    // Toggling comment mode off is an explicit "I'm done" signal — the
+    // popover is gone, so a draft can't be resumed without re-entering
+    // comment mode anyway. Drop it.
+    clearDraft();
   }
 
   /* ── annotation count badge (#6) ───────────────────────── */
   function updateCount() {
-    var n = annotations.length;
+    // Count unique annotations (targets), not raw note entries.
+    var n = getUniqueAnnotations().length;
     if (n > 0) {
       countEl.textContent = n;
       countEl.classList.remove('pp-hidden');
@@ -826,10 +641,11 @@
     toast.textContent = message;
     toast.style.top = '';
     toast.style.bottom = '';
+    var offset = toastOffsetPx() + 'px';
     if (toolbarPosition.indexOf('top-') === 0) {
-      toast.style.top = navPillActive ? '116px' : '76px';
+      toast.style.top = offset;
     } else {
-      toast.style.bottom = navPillActive ? '116px' : '76px';
+      toast.style.bottom = offset;
     }
     toast.classList.remove('pp-hidden', 'pp-toast-out');
     void toast.offsetWidth;
@@ -843,7 +659,7 @@
         toast.style.top = '';
         toast.style.bottom = '';
         applyToolbarPosition(toolbarPosition);
-      }, 300);
+      }, 160);
     }, 2500);
   }
 
@@ -1137,9 +953,118 @@
     return target;
   }
 
+  /* ── multi-target selection helpers ─────────────────────── */
+  function isInMultiSelect(target) {
+    if (!target) return false;
+    var key = target.key || getTargetKey(target);
+    for (var i = 0; i < multiTargets.length; i++) {
+      if (multiTargets[i].key === key) return true;
+    }
+    return false;
+  }
+
+  function positionMultiHighlight(target, node) {
+    var rect = getTargetAnchorRect(target);
+    if (!rect || rect.width < 1 || rect.height < 1) {
+      node.style.display = 'none';
+      return;
+    }
+    node.style.display = '';
+    node.style.top = rect.top + 'px';
+    node.style.left = rect.left + 'px';
+    node.style.width = rect.width + 'px';
+    node.style.height = rect.height + 'px';
+  }
+
+  function addToMultiSelect(target) {
+    if (!target) return;
+    target = prepareTarget(target);
+    if (target.kind !== 'element') return; // elements only for v1
+    if (isInMultiSelect(target)) return;
+    multiTargets.push(target);
+    var node = document.createElement('div');
+    node.className = 'pp-target-highlight pp-target-highlight-locked';
+    highlightLayer.appendChild(node);
+    multiHighlightNodes.set(target.key, node);
+    positionMultiHighlight(target, node);
+  }
+
+  function removeFromMultiSelect(target) {
+    if (!target) return;
+    var key = target.key || getTargetKey(target);
+    var idx = -1;
+    for (var i = 0; i < multiTargets.length; i++) {
+      if (multiTargets[i].key === key) { idx = i; break; }
+    }
+    if (idx === -1) return;
+    multiTargets.splice(idx, 1);
+    var node = multiHighlightNodes.get(key);
+    if (node) {
+      node.remove();
+      multiHighlightNodes.delete(key);
+    }
+  }
+
+  function clearMultiSelect() {
+    if (multiTargets.length === 0 && multiHighlightNodes.size === 0) return;
+    multiTargets = [];
+    multiHighlightNodes.forEach(function (node) { node.remove(); });
+    multiHighlightNodes.clear();
+  }
+
+  // Read the current multi popover's editor (if any) so the next rebuild
+  // can re-render the in-progress comment text and reference chips. Returns
+  // null when no multi popover is open, signalling "fresh editor".
+  function captureMultiEditorState() {
+    if (!popoverIsMulti || !popover) return null;
+    var editor = popover.querySelector('.pp-pop-editor');
+    if (!editor) return null;
+    return serializeEditor(editor);
+  }
+
+  function refreshMultiHighlights() {
+    multiTargets.forEach(function (target) {
+      var node = multiHighlightNodes.get(target.key);
+      if (node) positionMultiHighlight(target, node);
+    });
+  }
+
+  // Union bounding box of all selected targets. Used as the synthetic anchor
+  // for positionPop when the popover is rendering in multi-mode.
+  function getMultiAnchorRect(list) {
+    list = list || multiTargets;
+    if (!list.length) return null;
+    var left = Infinity, top = Infinity, right = -Infinity, bottom = -Infinity;
+    for (var i = 0; i < list.length; i++) {
+      var r = getTargetAnchorRect(list[i]);
+      if (!r) continue;
+      if (r.left < left) left = r.left;
+      if (r.top < top) top = r.top;
+      if (r.right > right) right = r.right;
+      if (r.bottom > bottom) bottom = r.bottom;
+    }
+    if (!isFinite(left) || !isFinite(top)) return null;
+    return {
+      left: left, top: top, right: right, bottom: bottom,
+      width: right - left, height: bottom - top,
+    };
+  }
+
   function getAnnotationsForTarget(target) {
     var key = target ? target.key || getTargetKey(target) : '';
     return annotations.filter(function (ann) { return ann.key === key; });
+  }
+
+  // One entry per unique target — multiple notes can share a key (and id).
+  // Used wherever the UI counts/navigates "annotations" rather than "notes":
+  // toolbar badge, nav pill, popover.
+  function getUniqueAnnotations() {
+    var seen = {};
+    return annotations.filter(function (a) {
+      if (seen[a.key]) return false;
+      seen[a.key] = true;
+      return true;
+    });
   }
 
   function getTargetFromAnnotation(ann) {
@@ -1453,10 +1378,14 @@
     return editor;
   }
 
-  function buildCommentCard(ann) {
+  function buildCommentCard(ann, showBadge) {
     ann.references = sanitizeReferences(ann.references || []);
     var card = document.createElement('div');
     card.className = 'pp-comment-card';
+    // Secondary cards reveal their copy/delete actions on hover only so the
+    // popover stays calm when there are many notes; the first card keeps its
+    // actions visible as the "primary" entry point for the annotation.
+    if (showBadge === false) card.classList.add('pp-comment-card-secondary');
 
     var shell = document.createElement('div');
     shell.className = 'pp-input-shell pp-comment-shell';
@@ -1469,11 +1398,13 @@
     var badge = document.createElement('span');
     badge.className = 'pp-comment-badge';
     badge.textContent = ann.id;
+    // Hidden via visibility (not display:none) so the header actions stay
+    // right-aligned with the rest of the cards.
+    if (showBadge === false) badge.classList.add('pp-comment-badge-invisible');
     badgeWrap.appendChild(badge);
-    card.appendChild(badgeWrap);
 
-    var actions = document.createElement('div');
-    actions.className = 'pp-comment-actions';
+    var headerActions = document.createElement('div');
+    headerActions.className = 'pp-comment-header-actions';
 
     var copy = document.createElement('button');
     copy.className = 'pp-pop-btn pp-pop-copy';
@@ -1482,7 +1413,10 @@
     copy.innerHTML = ico.copy;
     copy.addEventListener('click', function (e) {
       e.stopPropagation();
-      navigator.clipboard.writeText(formatMarkdown([ann])).then(
+      // Copy every note attached to this target so the export reads as one
+      // annotation with all of its feedback — not just the clicked card.
+      var notes = annotations.filter(function (a) { return a.key === ann.key; });
+      navigator.clipboard.writeText(formatMarkdown(notes.length ? notes : [ann])).then(
         function () {
           flashBtn(copy, ico.copy);
           showToast('Annotation ' + ann.id + ' copied');
@@ -1490,7 +1424,24 @@
         function () { shakeBtn(copy); }
       );
     });
-    actions.appendChild(copy);
+    headerActions.appendChild(copy);
+
+    var del = document.createElement('button');
+    del.className = 'pp-pop-btn pp-pop-delete';
+    del.title = 'Delete';
+    del.setAttribute('aria-label', 'Delete');
+    del.innerHTML = ico.trashSm;
+    del.addEventListener('click', function (e) {
+      e.stopPropagation();
+      deleteAnnotationAndContinue();
+    });
+    headerActions.appendChild(del);
+
+    badgeWrap.appendChild(headerActions);
+    card.appendChild(badgeWrap);
+
+    var actions = document.createElement('div');
+    actions.className = 'pp-comment-actions';
 
     var save = document.createElement('button');
     save.className = 'pp-pop-btn pp-pop-save pp-pop-submit';
@@ -1503,17 +1454,6 @@
       e.stopPropagation();
       commitAnnotationEdit();
     });
-
-    var del = document.createElement('button');
-    del.className = 'pp-pop-btn pp-pop-delete';
-    del.title = 'Delete';
-    del.setAttribute('aria-label', 'Delete');
-    del.innerHTML = ico.trashSm;
-    del.addEventListener('click', function (e) {
-      e.stopPropagation();
-      deleteAnnotationAndContinue();
-    });
-    actions.appendChild(del);
 
     var input = createCommentEditor({
       label: 'Annotation ' + ann.id,
@@ -1583,10 +1523,15 @@
 
     function deleteAnnotationAndContinue() {
       var target = popoverTarget || getTargetFromAnnotation(ann);
-      deleteAnnotation(ann.id);
+      deleteAnnotation(ann);
       var remaining = annotations.filter(function (item) { return item.key === ann.key; });
       if (remaining.length > 0) {
-        navPillTo(remaining[0]);
+        // Other notes for this target are still around — re-open the popover
+        // so the user sees the remaining notes plus a fresh new-comment row.
+        if (target) {
+          showTargetHighlight(target);
+          showPopover(target, remaining[0]);
+        }
         return;
       }
       if (target) {
@@ -1624,7 +1569,7 @@
     ref.className = 'pp-pop-btn pp-pop-ref pp-ref-picker';
     ref.title = 'Reference element';
     ref.setAttribute('aria-label', 'Reference element');
-    ref.innerHTML = ico.crosshair;
+    ref.innerHTML = ico.eyedropper;
     ref.addEventListener('mousedown', function (e) {
       e.preventDefault();
       e.stopPropagation();
@@ -1650,8 +1595,9 @@
     return card;
   }
 
-  function showPopover(target, ann) {
+  function showPopover(target, ann, draft) {
     hidePopover();
+    hidePinTip();
     target = prepareTarget(target);
     editingAnn = ann || null;
     popoverTarget = target;
@@ -1665,8 +1611,10 @@
     pop.className = 'pp-popover';
 
     if (isEdit) {
-      targetAnns.forEach(function (a) {
-        pop.appendChild(buildCommentCard(a));
+      targetAnns.forEach(function (a, i) {
+        // All notes for this target share an id; only the first card needs to
+        // display the badge — repeating it on every card is visual noise.
+        pop.appendChild(buildCommentCard(a, i === 0));
       });
     }
 
@@ -1704,7 +1652,14 @@
     newBadgeWrap.className = 'pp-comment-badge-wrap pp-new-comment-badge-wrap';
     var newBadge = document.createElement('span');
     newBadge.className = 'pp-comment-badge';
-    newBadge.textContent = nextId;
+    // When the target already has notes, the cards above already show the
+    // number — repeating it next to "Add another note" is noise. Hide the
+    // badge in that case; fresh targets still show the reserved id.
+    if (isEdit && targetAnns.length > 0) {
+      newBadgeWrap.classList.add('pp-comment-badge-wrap-hidden');
+    } else {
+      newBadge.textContent = nextId;
+    }
     newBadgeWrap.appendChild(newBadge);
     newRow.appendChild(newBadgeWrap);
 
@@ -1718,6 +1673,9 @@
       label: 'New comment',
       placeholder: isEdit ? 'Add another note' : 'Describe what should change',
       onChange: sync,
+      comment: draft ? draft.comment || '' : '',
+      references: draft ? draft.references || [] : [],
+      parts: draft ? draft.parts || [] : [],
     });
     editorRow.appendChild(input);
     shell.appendChild(editorRow);
@@ -1729,7 +1687,7 @@
     refBtn.className = 'pp-pop-btn pp-ref-picker';
     refBtn.title = 'Reference element';
     refBtn.setAttribute('aria-label', 'Reference element');
-    refBtn.innerHTML = ico.crosshair;
+    refBtn.innerHTML = ico.eyedropper;
     refBtn.addEventListener('mousedown', function (e) {
       e.preventDefault();
       e.stopPropagation();
@@ -1765,9 +1723,28 @@
       submit.classList.toggle('pp-submit-on', on);
       submit.disabled = !on;
     }
+    // Snapshot the editor to chrome.storage.local so a dev-server refresh
+    // (Vite HMR, etc.) can rebuild this popover with the in-progress text.
+    // Empty editor → wipe any existing draft instead of writing blank data.
+    function snapshotDraft() {
+      var data = serializeEditor(input);
+      if (!data.comment.trim() && data.refs.length === 0) {
+        clearDraft();
+        return;
+      }
+      saveDraft({
+        mode: 'single',
+        target: serializeTargetForDraft(target),
+        comment: data.comment,
+        parts: data.parts,
+        references: data.refs,
+      });
+    }
+    sync();
     input.addEventListener('input', function () {
       sync();
       saveEditorRange(input);
+      snapshotDraft();
     });
     input.addEventListener('keyup', function () { saveEditorRange(input); });
     input.addEventListener('mouseup', function () { saveEditorRange(input); });
@@ -1787,6 +1764,7 @@
       if (e.key === 'Escape') {
         e.preventDefault();
         e.stopPropagation();
+        clearDraft();
         hidePopover();
         hideTargetHighlight();
         hideOverlay();
@@ -1803,6 +1781,7 @@
       var data = serializeEditor(input);
       if (!data.comment && data.refs.length === 0) return;
       addAnnotation(target, data.comment, data.refs, data.parts);
+      clearDraft();
       hidePopover();
       hideTargetHighlight();
       hideOverlay();
@@ -1811,6 +1790,11 @@
     root.appendChild(pop);
     popover = pop;
     positionPop(target, pop);
+    // Re-position on the next frame too, in case the initial measurement
+    // was made before fonts/layout had settled and dimensions changed.
+    requestAnimationFrame(function () {
+      if (popover === pop && popoverTarget === target) positionPop(target, pop);
+    });
     observePopoverSize(pop, target);
     requestAnimationFrame(function () {
       if (quoteTextNode && quoteBlockNode) {
@@ -1818,6 +1802,7 @@
         var isSingleLine = quoteTextNode.scrollHeight <= lineHeight * 1.5;
         quoteBlockNode.classList.toggle('pp-pop-quote-single', isSingleLine);
       }
+      // Focus after layout so the caret is ready as soon as the box appears.
       input.focus();
     });
     if (ann) showNavPill(ann);
@@ -1829,9 +1814,7 @@
       popoverResizeObserver = null;
     }
     if (typeof ResizeObserver === 'undefined') return;
-    var first = true;
     popoverResizeObserver = new ResizeObserver(function () {
-      if (first) { first = false; return; }
       if (popover === pop && popoverTarget === target) positionPop(target, pop);
     });
     popoverResizeObserver.observe(pop);
@@ -1849,7 +1832,268 @@
       popoverTarget = null;
       editingAnn = null;
     }
+    // Reset the multi-mode flag — multiTargets themselves are preserved here
+    // because showMultiPopover() re-opens via hidePopover()+rebuild on every
+    // shift+click toggle. Callers that genuinely want to abandon the batch
+    // (Esc, stopCommenting, SPA routes) call clearMultiSelect() themselves.
+    popoverIsMulti = false;
     hideNavPill();
+  }
+
+  // Multi-target popover — opens when there's at least one element in
+   // multiTargets. Every shift+click rebuilds this via hidePopover()+show.
+   // Submit deep-clones the editor state into N independent annotations.
+   //
+   // `carried` is the previous editor's serializeEditor() output, captured
+   // before this rebuild was triggered (chip add/remove). Re-using it
+   // keeps in-progress text + reference chips alive across rebuilds —
+   // without it, every shift+click would wipe the comment field. It's also
+   // how a Vite-HMR draft restore re-enters multi-mode.
+  function showMultiPopover(carried) {
+    hidePopover();
+    hidePinTip();
+    if (multiTargets.length === 0) return;
+
+    editingAnn = null;
+    popoverTarget = null;
+    popoverIsMulti = true;
+
+    var pop = document.createElement('div');
+    pop.className = 'pp-popover pp-popover-multi';
+
+    var header = document.createElement('div');
+    header.className = 'pp-pop-multi-header';
+
+    var title = document.createElement('div');
+    title.className = 'pp-pop-multi-title';
+    title.textContent = 'Comment on ' + multiTargets.length +
+      (multiTargets.length === 1 ? ' item' : ' items');
+    header.appendChild(title);
+
+    var chipsWrap = document.createElement('div');
+    chipsWrap.className = 'pp-pop-multi-chips';
+
+    multiTargets.forEach(function (target) {
+      var chip = document.createElement('span');
+      chip.className = 'pp-multi-chip';
+      chip.title = getTargetDescription(target);
+
+      // Single label matches the eyedropper reference-chip pattern: "type"
+      // alone when the element has no visible text, "type: snippet" when it
+      // does (snippet ellipsized to keep chips compact across many rows).
+      var labelSpan = document.createElement('span');
+      labelSpan.className = 'pp-multi-chip-label';
+      var typeText = target.type || 'element';
+      var raw = (target.el && (target.el.innerText || target.el.textContent) || '').trim();
+      var snippet = raw && raw.length > 24 ? raw.slice(0, 24) + '…' : raw;
+      labelSpan.textContent = snippet ? typeText + ': ' + snippet : typeText;
+      chip.appendChild(labelSpan);
+
+      var remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'pp-multi-chip-remove';
+      remove.title = 'Remove from selection';
+      remove.setAttribute('aria-label', 'Remove from selection');
+      remove.innerHTML = '&times;';
+      remove.addEventListener('mousedown', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+      });
+      remove.addEventListener('click', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        // Snapshot the editor before the rebuild so chip removal doesn't
+        // wipe the comment text. The new popover replays parts/refs via
+        // its createCommentEditor call.
+        var nextCarried = serializeEditor(input);
+        removeFromMultiSelect(target);
+        if (multiTargets.length === 0) {
+          clearDraft();
+          hidePopover();
+          hideTargetHighlight();
+          hideOverlay();
+        } else {
+          showMultiPopover(nextCarried);
+        }
+      });
+      chip.appendChild(remove);
+
+      chipsWrap.appendChild(chip);
+    });
+
+    header.appendChild(chipsWrap);
+    pop.appendChild(header);
+
+    var newRow = document.createElement('div');
+    newRow.className = 'pp-new-comment-row';
+
+    var newBadgeWrap = document.createElement('div');
+    newBadgeWrap.className = 'pp-comment-badge-wrap pp-new-comment-badge-wrap pp-comment-badge-wrap-hidden';
+    var newBadge = document.createElement('span');
+    newBadge.className = 'pp-comment-badge';
+    newBadgeWrap.appendChild(newBadge);
+    newRow.appendChild(newBadgeWrap);
+
+    var shell = document.createElement('div');
+    shell.className = 'pp-input-shell pp-comment-shell pp-input-shell-new';
+
+    var editorRow = document.createElement('div');
+    editorRow.className = 'pp-comment-editor-row pp-new-comment-editor-row';
+
+    var input = createCommentEditor({
+      label: 'New comment',
+      placeholder: 'Describe what should change on all selected items',
+      onChange: sync,
+      comment: carried ? carried.comment || '' : '',
+      references: carried ? carried.refs || [] : [],
+      parts: carried ? carried.parts || [] : [],
+    });
+    editorRow.appendChild(input);
+    shell.appendChild(editorRow);
+
+    var btnRow = document.createElement('div');
+    btnRow.className = 'pp-pop-btns';
+
+    var refBtn = document.createElement('button');
+    refBtn.className = 'pp-pop-btn pp-ref-picker';
+    refBtn.title = 'Reference element';
+    refBtn.setAttribute('aria-label', 'Reference element');
+    refBtn.innerHTML = ico.eyedropper;
+    refBtn.addEventListener('mousedown', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      saveEditorRange(input);
+    });
+    refBtn.addEventListener('click', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      referencePicking = !referencePicking;
+      if (referencePicking) {
+        saveEditorRange(input);
+        referenceEditor = { editor: input, button: refBtn };
+        refBtn.classList.add('pp-ref-active');
+        input.focus();
+        hideTargetHighlight();
+        hideOverlay();
+      } else {
+        stopReferencePicking();
+      }
+    });
+    btnRow.appendChild(refBtn);
+
+    var submit = document.createElement('button');
+    submit.className = 'pp-pop-btn pp-pop-submit';
+    submit.title = 'Add to all selected';
+    submit.setAttribute('aria-label', 'Add to all selected');
+    submit.innerHTML = ico.arrowUp;
+    submit.disabled = true;
+
+    function sync() {
+      var data = serializeEditor(input);
+      var on = data.comment.trim().length > 0 || data.refs.length > 0;
+      submit.classList.toggle('pp-submit-on', on);
+      submit.disabled = !on;
+    }
+    // Persist a multi-mode draft on every keystroke. The targets list is
+    // serialized via their selectors so a page reload can re-query the
+    // elements and rebuild the popover.
+    function snapshotDraft() {
+      var data = serializeEditor(input);
+      if (!data.comment.trim() && data.refs.length === 0) {
+        clearDraft();
+        return;
+      }
+      saveDraft({
+        mode: 'multi',
+        targets: multiTargets.map(serializeTargetForDraft).filter(Boolean),
+        comment: data.comment,
+        parts: data.parts,
+        references: data.refs,
+      });
+    }
+    sync();
+    // Carried content from a previous render or a draft restore should
+    // produce one immediate snapshot so the saved draft reflects the
+    // freshly-rebuilt state (e.g. new chip count after a removal).
+    if (carried) snapshotDraft();
+    input.addEventListener('input', function () {
+      sync();
+      saveEditorRange(input);
+      snapshotDraft();
+    });
+    input.addEventListener('keyup', function () { saveEditorRange(input); });
+    input.addEventListener('mouseup', function () { saveEditorRange(input); });
+    input.addEventListener('click', function () { saveEditorRange(input); });
+
+    submit.addEventListener('click', function (e) {
+      e.stopPropagation();
+      commit();
+    });
+    btnRow.appendChild(submit);
+    shell.appendChild(btnRow);
+    newRow.appendChild(shell);
+    pop.appendChild(newRow);
+
+    input.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); commit(); }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        clearDraft();
+        clearMultiSelect();
+        hidePopover();
+        hideTargetHighlight();
+        hideOverlay();
+        if (commenting) stopCommenting();
+        return;
+      }
+      saveEditorRange(input);
+      e.stopPropagation();
+    });
+
+    function commit() {
+      var data = serializeEditor(input);
+      if (!data.comment && data.refs.length === 0) return;
+      // Each annotation gets its own copy of refs/parts with freshly-stamped
+      // reference ids — without that, markdown export's <ref:N> resolver
+      // would cross-link references between sibling annotations.
+      var targets = multiTargets.slice();
+      targets.forEach(function (target) {
+        var refs = data.refs.map(function (r) {
+          return {
+            id: makeReferenceId(),
+            selector: r.selector,
+            type: r.type,
+            label: r.label,
+            html: r.html,
+            text: r.text,
+            context: r.context,
+          };
+        });
+        var parts = data.parts.map(function (p) {
+          if (p.type === 'ref') {
+            var idx = data.refs.findIndex(function (r) { return r.id === p.id; });
+            return { type: 'ref', id: idx >= 0 ? refs[idx].id : p.id };
+          }
+          return { type: 'text', text: p.text };
+        });
+        addAnnotation(target, data.comment, refs, parts);
+      });
+      clearDraft();
+      clearMultiSelect();
+      hidePopover();
+      hideTargetHighlight();
+      hideOverlay();
+    }
+
+    root.appendChild(pop);
+    popover = pop;
+    positionPop(null, pop);
+    requestAnimationFrame(function () {
+      if (popover === pop && popoverIsMulti) positionPop(null, pop);
+    });
+    observePopoverSize(pop, null);
+    requestAnimationFrame(function () { input.focus(); });
   }
 
   function showOrphanPopover(ann) {
@@ -1880,18 +2124,25 @@
     del.innerHTML = ico.trashSm;
     del.addEventListener('click', function (e) {
       e.stopPropagation();
-      deleteAnnotation(ann.id);
+      // Remove every note sharing this orphaned element together — they were
+      // all attached to the same DOM target.
+      var siblings = annotations.filter(function (a) { return a.key === ann.key; });
+      siblings.forEach(function (s) { deleteAnnotation(s); });
       hidePopover();
     });
     header.appendChild(del);
     pop.appendChild(header);
 
-    if (ann.comment) {
+    // Multi-note orphans show every comment so the user can recover context
+    // before deleting.
+    var orphanNotes = annotations.filter(function (a) { return a.key === ann.key && a.comment; });
+    if (orphanNotes.length === 0 && ann.comment) orphanNotes = [ann];
+    orphanNotes.forEach(function (n) {
       var commentEl = document.createElement('p');
       commentEl.className = 'pp-orphan-comment';
-      commentEl.textContent = ann.comment;
+      commentEl.textContent = n.comment;
       pop.appendChild(commentEl);
-    }
+    });
 
     var selectorEl = document.createElement('div');
     selectorEl.className = 'pp-orphan-selector';
@@ -1910,7 +2161,7 @@
 
   /* ── floating annotation navigator ────────────────────── */
   function showNavPill(ann) {
-    if (annotations.length <= 1) { hideNavPill(); return; }
+    if (getUniqueAnnotations().length <= 1) { hideNavPill(); return; }
     clearTimeout(navHideTimer);
     navPill.classList.remove('pp-pill-out', 'pp-hidden');
     navCurrentId = ann.id;
@@ -1929,17 +2180,18 @@
       navPill.classList.remove('pp-pill-out');
       navPillActive = false;
       navCurrentId = null;
-    }, 200);
+    }, 160);
   }
 
   function updateNavPillLabel() {
     if (navCurrentId === null) return;
+    var uniqueAnns = getUniqueAnnotations();
     var idx = -1;
-    for (var i = 0; i < annotations.length; i++) {
-      if (annotations[i].id === navCurrentId) { idx = i; break; }
+    for (var i = 0; i < uniqueAnns.length; i++) {
+      if (uniqueAnns[i].id === navCurrentId) { idx = i; break; }
     }
     if (idx === -1) { hideNavPill(); return; }
-    navLabel.textContent = (idx + 1) + ' / ' + annotations.length;
+    navLabel.textContent = (idx + 1) + ' / ' + uniqueAnns.length;
   }
 
   function navPillTo(ann) {
@@ -1974,33 +2226,66 @@
   }
 
   function positionPop(target, pop) {
-    var anchor = getTargetAnchorRect(target);
+    // In multi-mode the popover anchors against the union bounding box of all
+    // selected targets — a single shared rect that doesn't jitter as the user
+    // toggles individual targets in and out.
+    var anchor = (target == null && popoverIsMulti)
+      ? getMultiAnchorRect()
+      : getTargetAnchorRect(target);
     if (!anchor) return;
 
     var margin = 8;
     var gap = 12;
     var viewportH = window.innerHeight;
     var viewportW = window.innerWidth;
-    var spaceAbove = Math.max(0, anchor.top - margin - gap);
-    var spaceBelow = Math.max(0, viewportH - anchor.bottom - margin - gap);
-    var placeBelow = spaceBelow >= spaceAbove;
-    var available = Math.max(120, placeBelow ? spaceBelow : spaceAbove);
 
-    pop.style.maxHeight = available + 'px';
+    // Reserve the toolbar's footprint so the popover never slips underneath
+    // (toolbar's z-index is higher and would clip the popover content).
+    var toolbarBlock = MAIN_OFFSET + TOOLBAR_HEIGHT + STACK_GAP;
+    var topBound = margin;
+    var bottomBound = viewportH - margin;
+    if (toolbarPosition.indexOf('top-') === 0) topBound = toolbarBlock;
+    else bottomBound = viewportH - toolbarBlock;
 
-    var popWidth = pop.offsetWidth || 320;
-    var popHeight = Math.min(pop.offsetHeight || 180, available);
+    // Allow the popover up to the full available viewport. The popover
+    // should only scroll when its content genuinely can't fit anywhere on
+    // screen — not when it merely doesn't fit on the chosen side of the
+    // anchor. The placement step below will move it around the anchor.
+    var availableViewport = Math.max(120, bottomBound - topBound);
+    pop.style.maxHeight = availableViewport + 'px';
+
+    // Force layout, then read layout-based dimensions. offsetHeight/Width
+    // ignore the pop-in animation's transform (scale 0.98), so they
+    // measure the popover at its true rendered size — getBoundingClientRect
+    // would read ~2% short while the animation is in flight.
+    void pop.offsetHeight;
+    var popWidth = pop.offsetWidth || 312;
+    var popHeight = Math.max(pop.scrollHeight, pop.offsetHeight) || 180;
+
+    var spaceBelow = bottomBound - anchor.bottom - gap;
+    var spaceAbove = anchor.top - topBound - gap;
+
     var top;
-
-    if (placeBelow) {
+    if (popHeight <= spaceBelow) {
+      // Preferred: directly below the anchor.
       top = anchor.bottom + gap;
-      top = Math.min(top, viewportH - popHeight - margin);
-    } else {
+    } else if (popHeight <= spaceAbove) {
+      // Fall back: above the anchor.
       top = anchor.top - popHeight - gap;
+    } else {
+      // Doesn't fit cleanly on either side — sit against the bound with
+      // more breathing room and let it overlap the anchor. Because
+      // maxHeight is the full viewport (not just one side), this still
+      // avoids a scrollbar as long as the natural content fits the screen.
+      top = spaceBelow >= spaceAbove ? bottomBound - popHeight : topBound;
     }
-    top = Math.max(margin, top);
+    // Clamp inside the toolbar-respecting viewport.
+    top = Math.max(topBound, Math.min(top, bottomBound - popHeight));
 
-    var left = anchor.left + anchor.width / 2 - popWidth / 2;
+    // Center on the visible anchor, but clamp into the viewport so the
+    // popover never lands jammed against an edge.
+    var anchorCenterX = anchor.left + anchor.width / 2;
+    var left = anchorCenterX - popWidth / 2;
     left = Math.max(margin, Math.min(left, viewportW - popWidth - margin));
 
     pop.style.top = top + 'px';
@@ -2011,8 +2296,12 @@
   /* ── annotations & pins ────────────────────────────────── */
   function addAnnotation(target, comment, references, parts) {
     target = prepareTarget(target);
+    // Replies to a target that already has notes inherit the target's id —
+    // multiple notes on the same DOM count as one annotation in the UI.
+    var existing = getAnnotationsForTarget(target);
+    var assignedId = existing.length > 0 ? existing[0].id : nextId++;
     var ann = {
-      id: nextId++,
+      id: assignedId,
       key: target.key,
       kind: target.kind,
       el: target.el || null,
@@ -2033,49 +2322,91 @@
     updateCount();
   }
 
-  function deleteAnnotation(id) {
-    var idx = annotations.findIndex(function (a) { return a.id === id; });
+  // Removes a single note. The caller passes the actual annotation reference
+  // because ids are no longer unique — multiple notes on the same target
+  // share an id, so id alone can't identify which entry to drop.
+  function deleteAnnotation(ann) {
+    var idx = annotations.indexOf(ann);
     if (idx === -1) return;
-    var ann = annotations[idx];
-    if (ann.pinEl) ann.pinEl.remove();
+
+    var siblings = annotations.filter(function (a) {
+      return a !== ann && a.key === ann.key;
+    });
+
     annotations.splice(idx, 1);
+
+    // Other notes for this target survive — keep pin and id intact.
+    if (siblings.length > 0) {
+      persist();
+      updateCount();
+      return;
+    }
+
+    // Last note for the target. Drop the pin and renumber higher ids down.
+    if (ann.pinEl) ann.pinEl.remove();
     renumber();
     persist();
     updateCount();
-    // Update nav pill after renumber
+
     if (navPillActive) {
-      if (annotations.length <= 1) {
+      var uniqueAnns = getUniqueAnnotations();
+      if (uniqueAnns.length <= 1) {
         hideNavPill();
       } else {
-        var newIdx = Math.min(idx, annotations.length - 1);
-        navCurrentId = annotations[newIdx].id;
+        var stillExists = uniqueAnns.some(function (a) { return a.id === navCurrentId; });
+        if (!stillExists) navCurrentId = uniqueAnns[0].id;
         updateNavPillLabel();
       }
     }
   }
 
   function renumber() {
+    // Annotations targeting the same DOM (same key) share a single id. Walk
+    // in order; first occurrence of each key claims the next id, siblings
+    // inherit it. Pins are shared too — only update each pin once.
+    var keyToId = {};
+    var seenKeys = {};
+    var nextNum = 1;
+
     for (var i = 0; i < annotations.length; i++) {
       var a = annotations[i];
-      a.id = i + 1;
-      if (a.pinEl) {
-        a.pinEl.textContent = a.id;
-        a.pinEl.setAttribute('aria-label', 'Annotation ' + a.id);
-        a.pinEl.classList.toggle('pp-pin-sm', a.id >= 10 && a.id < 100);
-        a.pinEl.classList.toggle('pp-pin-xs', a.id >= 100);
+      if (!(a.key in keyToId)) keyToId[a.key] = nextNum++;
+      a.id = keyToId[a.key];
+    }
+
+    for (var j = 0; j < annotations.length; j++) {
+      var ann = annotations[j];
+      if (seenKeys[ann.key]) continue;
+      seenKeys[ann.key] = true;
+      if (ann.pinEl) {
+        var numEl = ann.pinEl.querySelector('.pp-pin-num');
+        if (numEl) numEl.textContent = ann.id;
+        else ann.pinEl.textContent = ann.id;
+        ann.pinEl.setAttribute('aria-label', 'Annotation ' + ann.id);
+        ann.pinEl.classList.toggle('pp-pin-sm', ann.id >= 10 && ann.id < 100);
+        ann.pinEl.classList.toggle('pp-pin-xs', ann.id >= 100);
       }
     }
-    nextId = annotations.length + 1;
+
+    nextId = nextNum;
   }
 
   function deleteAll() {
     if (annotations.length === 0) { shakeBtn(btnDelete); return; }
-    var count = annotations.length;
+    var count = getUniqueAnnotations().length;
     hidePopover();
     hideTargetHighlight();
     hideOverlay();
     saveUndoState();
-    annotations.forEach(function (a) { if (a.pinEl) a.pinEl.remove(); });
+    // Pins are shared across same-target notes — dedupe so we don't try
+    // to remove the same DOM node twice.
+    var removed = {};
+    annotations.forEach(function (a) {
+      if (a.pinEl && !removed[a.key]) {
+        removed[a.key] = true;
+        a.pinEl.remove();
+      }
+    });
     annotations = [];
     nextId = 1;
     persist();
@@ -2091,29 +2422,59 @@
   }
 
   function markAnnotationOrphaned(ann) {
-    if (!ann || ann.orphaned) return;
-    ann.orphaned = true;
-    ann.el = null;
-    ann.range = null;
+    if (!ann) return;
+    // All notes targeting the same element become orphaned together — they
+    // share an el, so once it's gone, every sibling is gone too.
+    var siblings = annotations.filter(function (a) { return a.key === ann.key; });
+    var changed = false;
+    siblings.forEach(function (s) {
+      if (s.orphaned) return;
+      s.orphaned = true;
+      s.el = null;
+      s.range = null;
+      changed = true;
+    });
+    if (!changed) return;
     syncOrphanPinState(ann);
     positionPin(ann);
     persist();
   }
 
   function createPin(ann) {
+    // One pin per target. If another annotation already has a pin for the same
+    // key (multi-note annotation), reuse it so users see a single pin on screen.
+    var sibling = annotations.find(function (a) {
+      return a !== ann && a.key === ann.key && a.pinEl;
+    });
+    if (sibling) {
+      ann.pinEl = sibling.pinEl;
+      syncOrphanPinState(ann);
+      return;
+    }
+
     var pin = document.createElement('div');
     pin.className = 'pp-pin';
     pin.setAttribute('role', 'button');
     pin.setAttribute('tabindex', '0');
     pin.setAttribute('aria-label', 'Annotation ' + ann.id);
+    pin.dataset.annKey = ann.key;
     if (ann.id >= 100) pin.classList.add('pp-pin-xs');
     else if (ann.id >= 10) pin.classList.add('pp-pin-sm');
-    pin.textContent = ann.id;
+    pin.innerHTML =
+      '<span class="pp-pin-num">' + ann.id + '</span>' +
+      '<span class="pp-pin-icon" aria-hidden="true">' + ico.pencilPin + '</span>';
 
     pinLayer.appendChild(pin);
     ann.pinEl = pin;
     syncOrphanPinState(ann);
     positionPin(ann);
+
+    // Closures capture `ann` directly. With shared pins, that ann may be
+    // deleted while siblings remain; look up a live annotation by key when
+    // handlers fire so we always operate on something that exists.
+    function liveAnn() {
+      return annotations.find(function (a) { return a.key === pin.dataset.annKey; }) || ann;
+    }
 
     pin.addEventListener('keydown', function (e) {
       if (e.key === 'Enter' || e.key === ' ') {
@@ -2122,15 +2483,22 @@
       }
     });
 
+    pin.addEventListener('mouseenter', function () { showPinTip(liveAnn()); });
+    pin.addEventListener('mouseleave', function () { hidePinTip(); });
+    pin.addEventListener('focus', function () { showPinTip(liveAnn()); });
+    pin.addEventListener('blur', function () { hidePinTip(); });
+
     pin.addEventListener('click', function (e) {
       e.stopPropagation();
+      var current = liveAnn();
+      if (!current) return;
 
-      if (ann.orphaned) {
-        showOrphanPopover(ann);
+      if (current.orphaned) {
+        showOrphanPopover(current);
         return;
       }
 
-      var target = getTargetFromAnnotation(ann);
+      var target = getTargetFromAnnotation(current);
       if (!target) return;
 
       var r = getTargetAnchorRect(target);
@@ -2138,27 +2506,78 @@
 
       if (inView) {
         showTargetHighlight(target);
-        showPopover(target, ann);
+        showPopover(target, current);
       } else {
-        scrollAnnotationIntoView(ann, function () {
-          var liveTarget = getTargetFromAnnotation(ann);
+        scrollAnnotationIntoView(current, function () {
+          var liveTarget = getTargetFromAnnotation(current);
           if (!liveTarget) {
-            if (ann.orphaned) showOrphanPopover(ann);
+            if (current.orphaned) showOrphanPopover(current);
             return;
           }
           showTargetHighlight(liveTarget);
-          showPopover(liveTarget, ann);
+          showPopover(liveTarget, current);
         });
       }
     });
   }
 
+  /* ── pin hover tooltip ─────────────────────────────────── */
+  function getPinTipPreview(ann) {
+    if (!ann) return '';
+    // Aggregate all notes for this target (they share ann.key).
+    var notes = annotations.filter(function (a) { return a.key === ann.key; });
+    if (!notes.length) notes = [ann];
+    var parts = [];
+    notes.forEach(function (a) {
+      var c = normalizeQuote(a.comment || '');
+      if (!c) return;
+      if (c.length > 70) c = c.slice(0, 70) + '…';
+      parts.push(c);
+    });
+    return parts.join('  •  ');
+  }
+
+  function showPinTip(ann) {
+    if (!ann || !ann.pinEl) return;
+    var preview = getPinTipPreview(ann);
+    if (!preview) { hidePinTip(); return; }
+    pinTip.textContent = preview;
+    // Reveal first so we can measure, then position before the next paint.
+    pinTip.classList.add('pp-on');
+    positionPinTip(ann);
+  }
+
+  function hidePinTip() {
+    pinTip.classList.remove('pp-on');
+  }
+
+  function positionPinTip(ann) {
+    if (!ann || !ann.pinEl) return;
+    var pinR = ann.pinEl.getBoundingClientRect();
+    var tipW = pinTip.offsetWidth || 240;
+    var tipH = pinTip.offsetHeight || 36;
+    // Prefer above the pin; fall back below if it would clip the top.
+    var top = pinR.top - tipH - 8;
+    if (top < 8) top = pinR.bottom + 8;
+    var left = pinR.left + pinR.width / 2 - tipW / 2;
+    left = Math.max(8, Math.min(left, window.innerWidth - tipW - 8));
+    pinTip.style.top = top + 'px';
+    pinTip.style.left = left + 'px';
+  }
+
   function positionPin(ann) {
     if (ann.orphaned) {
+      // Stack orphan pins by unique key — siblings sharing a pin shouldn't each
+      // claim a slot, and shared pins must land at the same offset every refresh.
       var orphanIndex = 0;
+      var seenKeys = {};
       for (var oi = 0; oi < annotations.length; oi++) {
-        if (annotations[oi] === ann) break;
-        if (annotations[oi].orphaned) orphanIndex++;
+        var other = annotations[oi];
+        if (other.key === ann.key) break;
+        if (other.orphaned && !seenKeys[other.key]) {
+          seenKeys[other.key] = true;
+          orphanIndex++;
+        }
       }
       ann.pinEl.style.display = 'flex';
       ann.pinEl.style.top = (8 + orphanIndex * 30) + 'px';
@@ -2181,27 +2600,28 @@
   function refreshAll() {
     pruneMissingReferences();
     annotations.forEach(positionPin);
-    if (measuring) {
-      measureRootFontSize = readRootFontSize();
-      if (lastMouseX >= 0) {
-        var el = resolveMeasureElement(lastMouseX, lastMouseY);
-        if (measureDragging) measureDragTarget = el;
-        else measureHoverTarget = el;
-      }
-      refreshMeasure();
-    }
-    if (popover && popoverTarget) {
+    // Hide pin tip on scroll/resize — pin may have moved or scrolled offscreen.
+    hidePinTip();
+    // Locked highlights on selected targets need to track scroll/resize the
+    // same way pins do — same tick, same getTargetAnchorRect math.
+    if (multiTargets.length) refreshMultiHighlights();
+    if (popover && popoverIsMulti) {
+      positionPop(null, popover);
+    } else if (popover && popoverTarget) {
       positionPop(popoverTarget, popover);
       showTargetHighlight(popoverTarget);
-    } else if (commenting && lastMouseX >= 0) {
+    } else if (commenting && pointerInWindow && lastMouseX >= 0) {
       var el = document.elementFromPoint(lastMouseX, lastMouseY);
-      if (el && !isSkippable(el) && !isOurUI(el)) {
+      if (isHoverHighlightable(el)) {
         hovered = el;
         showOverlay(el);
       } else {
         hideOverlay();
         hideTargetHighlight();
       }
+    } else if (commenting && !pointerInWindow) {
+      // Cursor left the window — keep the preview clear (no stale hover).
+      hideOverlay();
     }
   }
 
@@ -2457,46 +2877,200 @@
   }
 
   /* ── element snapshots for export ────────────────────────── */
-  var KEEP_ATTRS = /^(id|class|href|src|alt|name|type|role|aria-label|placeholder|action|method|for|value|target|rel)$/;
+  // Identity/intent attrs first; class is added last so truncation keeps
+  // the useful bits when Tailwind class lists blow past the length budget.
+  var IDENTITY_ATTRS = [
+    'id', 'role', 'aria-label', 'aria-labelledby', 'aria-describedby',
+    'name', 'type', 'alt', 'title', 'placeholder', 'href', 'src', 'poster',
+    'for', 'action', 'method', 'value', 'target', 'rel', 'width', 'height',
+    'data-testid', 'data-test', 'data-cy'
+  ];
 
-  function getCleanTag(el) {
-    if (!el.isConnected) return '';
-    var clone = el.cloneNode(false);
-    var attrs = Array.from(clone.attributes);
-    for (var i = 0; i < attrs.length; i++) {
-      var a = attrs[i];
-      if (!KEEP_ATTRS.test(a.name)) { clone.removeAttribute(a.name); continue; }
-      if (a.name === 'class') {
-        var clean = a.value.trim().split(/\s+/).filter(function (c) {
-          return c && !isGeneratedClass(c);
-        }).join(' ');
-        if (clean) clone.setAttribute('class', clean); else clone.removeAttribute('class');
+  // Utility-heavy classes (Tailwind etc.) bury the signal — keep a short
+  // sample unless a class looks like a component/BEM name.
+  var UTILITY_CLASS = /^!?(?:p|px|py|pt|pr|pb|pl|m|mx|my|mt|mr|mb|ml|w|h|min-w|min-h|max-w|max-h|size|gap|space|flex|grid|col|row|order|grow|shrink|basis|items|justify|content|self|place|overflow|truncate|whitespace|break|rounded|border|ring|shadow|opacity|z|inset|top|right|bottom|left|start|end|translate|rotate|scale|skew|origin|object|bg|from|via|to|text|font|leading|tracking|align|underline|line|decoration|list|appearance|cursor|pointer|select|resize|scroll|snap|touch|accent|caret|fill|stroke|sr|not-sr|visible|invisible|collapse|static|fixed|absolute|relative|sticky|block|inline|hidden|table|flow|contents|isolate|mix|filter|backdrop|transition|duration|ease|delay|animate|will-change|aspect|columns|box|float|clear|isolation|overscroll)-|^!?(?:flex|grid|block|inline|hidden|relative|absolute|fixed|sticky|static|truncate|sr-only|not-sr-only|container|prose|clearfix)$/;
+
+  function isUtilityClass(cls) {
+    if (!cls) return true;
+    // Any Tailwind-style variant prefix (sm:, max-sm:, hover:, dark:, …).
+    if (cls.indexOf(':') !== -1) return true;
+    if (cls.indexOf('[') !== -1) return true; // arbitrary values
+    return UTILITY_CLASS.test(cls);
+  }
+
+  function shortAttrValue(name, value) {
+    if (!value) return '';
+    var v = String(value).trim();
+    if ((name === 'src' || name === 'href' || name === 'poster') && v.length > 80) {
+      try {
+        var u = new URL(v, location.href);
+        var base = u.pathname.split('/').filter(Boolean).pop() || u.pathname;
+        return (base.length > 60 ? base.slice(0, 60) + '\u2026' : base) + (u.search ? '?…' : '');
+      } catch (e) {
+        return v.length > 60 ? v.slice(0, 60) + '\u2026' : v;
       }
     }
-    var html = clone.outerHTML;
+    if (v.length > 72) return v.slice(0, 72) + '\u2026';
+    return v;
+  }
+
+  function pickExportClasses(el) {
+    if (!el.className || typeof el.className !== 'string') return [];
+    var all = el.className.trim().split(/\s+/).filter(function (c) {
+      return c && !isGeneratedClass(c);
+    });
+    if (!all.length) return [];
+    var meaningful = all.filter(function (c) { return !isUtilityClass(c); });
+    // Prefer component/BEM-ish names; fall back to a few utilities for shape.
+    if (meaningful.length) return meaningful.slice(0, 6);
+    return all.slice(0, 4);
+  }
+
+  function getCleanTag(el) {
+    if (!el || !el.isConnected) return '';
     var tag = el.tagName.toLowerCase();
-    var closeTag = '</' + tag + '>';
-    if (html.endsWith(closeTag)) html = html.slice(0, -closeTag.length);
-    return html.length > 200 ? html.slice(0, 200) + '...' : html;
+    var bits = ['<' + tag];
+    var budget = 260;
+
+    IDENTITY_ATTRS.forEach(function (name) {
+      if (!el.hasAttribute(name)) return;
+      var val = shortAttrValue(name, el.getAttribute(name));
+      if (!val) return;
+      var piece = ' ' + name + '="' + val.replace(/"/g, '&quot;') + '"';
+      if ((bits.join('').length + piece.length) > budget) return;
+      bits.push(piece);
+    });
+
+    var classes = pickExportClasses(el);
+    if (classes.length) {
+      var classStr = classes.join(' ');
+      var piece = ' class="' + classStr + '"';
+      // If class still overflows, keep as many as fit.
+      while (classes.length > 1 && (bits.join('').length + piece.length) > budget) {
+        classes.pop();
+        classStr = classes.join(' ') + '\u2026';
+        piece = ' class="' + classStr + '"';
+      }
+      if ((bits.join('').length + piece.length) <= budget + 20) bits.push(piece);
+    }
+
+    var html = bits.join('');
+    if (html.length > budget) html = html.slice(0, budget) + '…';
+    return html;
   }
 
   function getTextPreview(el) {
-    var text = (el.textContent || '').trim();
+    var text = (el.textContent || '').replace(/\s+/g, ' ').trim();
     if (!text) return '';
-    return text.length > 80 ? text.slice(0, 80) + '\u2026' : text;
+    return text.length > 100 ? text.slice(0, 100) + '\u2026' : text;
   }
 
-  var SEMANTIC_TAGS = { HEADER:1, NAV:1, MAIN:1, ASIDE:1, FOOTER:1, SECTION:1, ARTICLE:1, FORM:1 };
+  var SEMANTIC_TAGS = { HEADER:1, NAV:1, MAIN:1, ASIDE:1, FOOTER:1, SECTION:1, ARTICLE:1, FORM:1, DIALOG:1, FIGURE:1, TABLE:1, UL:1, OL:1 };
+
+  function getMeaningfulClass(el) {
+    if (!el.className || typeof el.className !== 'string') return '';
+    var classes = el.className.trim().split(/\s+/).filter(function (c) {
+      return c && !isGeneratedClass(c) && !isUtilityClass(c);
+    });
+    return classes[0] || '';
+  }
+
+  // One path segment for the ancestor trail — skip anonymous wrappers.
+  function describeContextNode(el) {
+    if (!el || !el.tagName) return '';
+    var tag = el.tagName.toLowerCase();
+    if (el.id && !/\s/.test(el.id)) return tag + '#' + el.id;
+
+    var aria = (el.getAttribute('aria-label') || '').trim();
+    if (aria) {
+      var short = aria.length > 36 ? aria.slice(0, 36) + '\u2026' : aria;
+      return tag + '[aria-label="' + short.replace(/"/g, "'") + '"]';
+    }
+
+    var role = (el.getAttribute('role') || '').trim();
+    if (role) return tag + '[role=' + role + ']';
+
+    var testId = el.getAttribute('data-testid') || el.getAttribute('data-test') || el.getAttribute('data-cy');
+    if (testId) return tag + '[data-testid=' + testId + ']';
+
+    var meaningful = getMeaningfulClass(el);
+    if (meaningful) return tag + '.' + meaningful;
+
+    if (SEMANTIC_TAGS[el.tagName]) return tag;
+    // Skip pure layout wrappers (div/span without identity).
+    if (tag === 'div' || tag === 'span') return '';
+    return tag;
+  }
 
   function getAncestorTrail(el) {
     var parts = [];
     var cur = el.parentElement;
-    while (cur && cur !== document.body && cur !== document.documentElement) {
-      if (cur.id && !/\s/.test(cur.id)) { parts.unshift('#' + cur.id); break; }
-      if (SEMANTIC_TAGS[cur.tagName]) parts.unshift(cur.tagName.toLowerCase());
+    var depth = 0;
+    while (cur && cur !== document.body && cur !== document.documentElement && depth < 10) {
+      var label = describeContextNode(cur);
+      if (label) parts.unshift(label);
+      // Stop at a stable id once we already have some trail.
+      if (cur.id && !/\s/.test(cur.id) && parts.length) break;
+      // Cap once we have a landmark + enough path.
+      if (SEMANTIC_TAGS[cur.tagName] && (cur.tagName === 'MAIN' || cur.tagName === 'HEADER' ||
+          cur.tagName === 'FOOTER' || cur.tagName === 'NAV' || cur.tagName === 'ASIDE') &&
+          parts.length >= 2) {
+        break;
+      }
       cur = cur.parentElement;
+      depth++;
     }
     return parts.length ? parts.join(' > ') : '';
+  }
+
+  // Closest section heading so agents know which block the note refers to.
+  function getNearbyHeading(el) {
+    if (!el) return '';
+    var cur = el;
+    while (cur && cur !== document.body && cur !== document.documentElement) {
+      var labelledBy = cur.getAttribute && cur.getAttribute('aria-labelledby');
+      if (labelledBy) {
+        var labelEl = document.getElementById(labelledBy.split(/\s+/)[0]);
+        if (labelEl) {
+          var t = (labelEl.textContent || '').replace(/\s+/g, ' ').trim();
+          if (t) return (labelEl.tagName || 'label').toLowerCase() + ' "' +
+            (t.length > 60 ? t.slice(0, 60) + '\u2026' : t) + '"';
+        }
+      }
+
+      var sib = cur.previousElementSibling;
+      while (sib) {
+        if (/^H[1-6]$/.test(sib.tagName)) {
+          var ht = (sib.textContent || '').replace(/\s+/g, ' ').trim();
+          if (ht) return sib.tagName.toLowerCase() + ' "' +
+            (ht.length > 60 ? ht.slice(0, 60) + '\u2026' : ht) + '"';
+        }
+        var nested = sib.querySelector && sib.querySelector('h1, h2, h3, h4, h5, h6');
+        if (nested) {
+          var nt = (nested.textContent || '').replace(/\s+/g, ' ').trim();
+          if (nt) return nested.tagName.toLowerCase() + ' "' +
+            (nt.length > 60 ? nt.slice(0, 60) + '\u2026' : nt) + '"';
+        }
+        sib = sib.previousElementSibling;
+      }
+
+      if (cur.parentElement) {
+        var direct = null;
+        var kids = cur.parentElement.children;
+        for (var i = 0; i < kids.length; i++) {
+          if (kids[i] === cur) break;
+          if (/^H[1-6]$/.test(kids[i].tagName)) direct = kids[i];
+        }
+        if (direct) {
+          var dt = (direct.textContent || '').replace(/\s+/g, ' ').trim();
+          if (dt) return direct.tagName.toLowerCase() + ' "' +
+            (dt.length > 60 ? dt.slice(0, 60) + '\u2026' : dt) + '"';
+        }
+      }
+
+      cur = cur.parentElement;
+    }
+    return '';
   }
 
   function getExportLabel(ann) {
@@ -2541,7 +3115,7 @@
     ann.references = refs;
     if (!refs.length) return;
     lines.push('   Inline references:');
-    lines.push('      The <ref:n> tokens appear inside Feedback at the exact sentence position where the user inserted each reference. Use the surrounding words to infer intent, such as matching, comparing, or borrowing style/content from that referenced element.');
+    lines.push('      The <ref:n> tokens appear inside the feedback text at the exact sentence position where the user inserted each reference. Use the surrounding words to infer intent, such as matching, comparing, or borrowing style/content from that referenced element.');
     refs.forEach(function (ref, index) {
       if (!ref) return;
       lines.push('      <ref:' + (index + 1) + '> ' + getReferenceSummary(ref));
@@ -2553,42 +3127,77 @@
     });
   }
 
+  // Label the live viewport so agents know which breakpoint the notes
+  // were written against (e.g. "680px Width (Mobile)").
+  function getViewportLabel() {
+    var w = window.innerWidth;
+    var bucket = w < 768 ? 'Mobile' : w < 1024 ? 'Tablet' : 'Desktop';
+    return w + 'px Width (' + bucket + ')';
+  }
+
   /* ── copy ──────────────────────────────────────────────── */
   function formatMarkdown(items) {
     var source = items || annotations;
-    var lines = ['URL: ' + location.href];
-    lines.push('');
 
+    // Group notes by id so each annotation appears once with all its
+    // feedback grouped underneath. Multiple notes share a target, so the
+    // HTML/text/context lines come from the first note and aren't repeated.
+    var groups = [];
+    var byId = {};
     source.forEach(function (ann) {
-      lines.push(ann.id + '.');
+      if (!byId[ann.id]) {
+        byId[ann.id] = { id: ann.id, anns: [] };
+        groups.push(byId[ann.id]);
+      }
+      byId[ann.id].anns.push(ann);
+    });
 
-      var html = ann.el ? getCleanTag(ann.el) : '';
-      var text = ann.kind === 'text' ? ann.quote : (ann.el ? getTextPreview(ann.el) : '');
-      var context = ann.el ? getAncestorTrail(ann.el) : '';
-      var comment = getInlineFeedback(ann);
+    // Feedback leads (on the number line) so multi-agent previews show the
+    // human note first. URL + viewport trail at the end so they don't steal
+    // the preview header.
+    var lines = [];
+
+    groups.forEach(function (group) {
+      var primary = group.anns[0];
+      var firstFeedback = getInlineFeedback(primary) || '';
+      lines.push(primary.id + '. ' + firstFeedback);
+      appendReferenceExport(lines, primary);
+
+      // Extra notes on the same target, indented under the first.
+      for (var i = 1; i < group.anns.length; i++) {
+        lines.push('   ' + getInlineFeedback(group.anns[i]));
+        appendReferenceExport(lines, group.anns[i]);
+      }
+      lines.push('   — end of feedback —');
+
+      var html = primary.el ? getCleanTag(primary.el) : '';
+      var text = primary.kind === 'text' ? primary.quote : (primary.el ? getTextPreview(primary.el) : '');
+      var selector = primary.selector || (primary.el ? buildSelector(primary.el) : '');
+      var context = primary.el ? getAncestorTrail(primary.el) : '';
+      var near = primary.el ? getNearbyHeading(primary.el) : '';
 
       if (html) lines.push('   HTML: ' + html);
-      if (text) lines.push('   ' + (ann.kind === 'text' ? 'Quote' : 'Text') + ': ' + quoteExportValue(text));
+      if (text) lines.push('   ' + (primary.kind === 'text' ? 'Quote' : 'Text') + ': ' + quoteExportValue(text));
+      if (selector) lines.push('   Selector: ' + selector);
       if (context) lines.push('   Context: ' + context);
+      if (near) lines.push('   Near: ' + near);
 
-      if (ann.orphaned) {
-        lines.push('   Status: Element not found');
-        lines.push('   Feedback: ' + comment);
-        appendReferenceExport(lines, ann);
-        lines.push('');
-        return;
-      }
+      if (primary.orphaned) lines.push('   Status: Element not found');
 
-      lines.push('   Feedback: ' + comment);
-      appendReferenceExport(lines, ann);
       lines.push('');
     });
+
+    lines.push('URL: ' + location.href);
+    lines.push('Viewport: ' + getViewportLabel());
     return lines.join('\n').trim();
   }
 
   function copyAll() {
     if (annotations.length === 0) { shakeBtn(btnCopy); return; }
-    var count = annotations.length;
+    // The "Clear after copy" toggle in the menu makes the plain Copy
+    // action behave exactly like the Shift+A shortcut — copy, then wipe.
+    if (clearAfterCopy) { copyAndClear(); return; }
+    var count = getUniqueAnnotations().length;
     navigator.clipboard.writeText(formatMarkdown()).then(
       function () {
         flashBtn(btnCopy, ico.copy);
@@ -2599,23 +3208,31 @@
   }
 
   function copyAndClear() {
-    if (annotations.length === 0) { shakeBtn(btnSend); return; }
-    var count = annotations.length;
+    if (annotations.length === 0) { shakeBtn(btnCopy); return; }
+    var count = getUniqueAnnotations().length;
     var md = formatMarkdown();
     saveUndoState();
     navigator.clipboard.writeText(md).then(function () {
-      flashBtn(btnSend, ico.send);
+      flashBtn(btnCopy, ico.copy);
       showToast(count + ' annotation' + (count !== 1 ? 's' : '') + ' copied & cleared');
       hidePopover();
       hideTargetHighlight();
       hideOverlay();
-      annotations.forEach(function (a) { if (a.pinEl) a.pinEl.remove(); });
+      // Pins are shared across notes for the same target — dedupe before
+      // removing so we don't try to remove the same DOM node twice.
+      var removed = {};
+      annotations.forEach(function (a) {
+        if (a.pinEl && !removed[a.key]) {
+          removed[a.key] = true;
+          a.pinEl.remove();
+        }
+      });
       annotations = [];
       nextId = 1;
       persist();
       updateCount();
     }, function () {
-      shakeBtn(btnSend);
+      shakeBtn(btnCopy);
       clearUndoState();
     });
   }
@@ -2761,6 +3378,7 @@
       if (requestId !== restoreRequestId) return;
       if (!data) {
         if (annotations.length === 0) updateCount();
+        tryRestoreDraft();
         return;
       }
 
@@ -2863,6 +3481,82 @@
           showToast(orphanCount + ' annotation' + (orphanCount !== 1 ? 's' : '') + ' couldn\'t find their elements');
         }, 400);
       }
+      tryRestoreDraft();
+    });
+  }
+
+  // Re-open the popover with whatever in-progress comment was written
+  // before the page reloaded. Triggered after restore() finishes its
+  // async annotation work. Bails silently when there's no recent draft,
+  // when the saved targets can't be re-queried, or when the site has
+  // been disabled in the meantime.
+  var draftRestoreAttempted = false;
+  function tryRestoreDraft() {
+    if (draftRestoreAttempted) return;
+    draftRestoreAttempted = true;
+
+    loadDraft(function (draft) {
+      if (!draft || !draft.mode) return;
+      // Stale drafts are ignored — see DRAFT_MAX_AGE_MS rationale.
+      if (!draft.savedAt || Date.now() - draft.savedAt > DRAFT_MAX_AGE_MS) {
+        clearDraft();
+        return;
+      }
+      // A popover is already on screen — don't clobber it. Keeps the
+      // draft on disk so the user can close the current popover and a
+      // future reload still has the draft to fall back on.
+      if (popover) return;
+
+      // Re-check site-enabled rules so an HMR refresh on a site the user
+      // has since disabled doesn't pop the popover back up. Mirrors the
+      // init-time site-disabled callback that hides the toggle.
+      safeStorageGet(['disabledHosts', 'devOnly'], function (data) {
+        var list = data.disabledHosts || [];
+        var devOnly = !!data.devOnly;
+        var localHtml = isLocalHtmlFile();
+        var siteKey = getSiteKey();
+        if (location.protocol === 'file:' && !localHtml) return;
+        if (list.indexOf(siteKey) !== -1) return;
+        if (localHtml && !devOnly) return;
+        if (!localHtml && devOnly && !isDevHost()) return;
+
+        if (draft.mode === 'multi') {
+          var resolvedTargets = (draft.targets || [])
+            .map(resolveTargetFromDraft)
+            .filter(Boolean);
+          if (resolvedTargets.length === 0) {
+            clearDraft();
+            return;
+          }
+          if (!active) activate();
+          else if (!commenting) startCommenting();
+          clearMultiSelect();
+          resolvedTargets.forEach(addToMultiSelect);
+          // showMultiPopover() reads multiTargets and rebuilds — feeding
+          // it the saved comment/parts/refs via the `carried` arg restores
+          // the editor content as if the popover had never closed.
+          showMultiPopover({
+            comment: draft.comment || '',
+            parts: draft.parts || [],
+            refs: draft.references || [],
+          });
+          return;
+        }
+
+        var target = resolveTargetFromDraft(draft.target);
+        if (!target) {
+          clearDraft();
+          return;
+        }
+        if (!active) activate();
+        else if (!commenting) startCommenting();
+        showTargetHighlight(target);
+        showPopover(target, null, {
+          comment: draft.comment || '',
+          parts: draft.parts || [],
+          references: draft.references || [],
+        });
+      });
     });
   }
 
@@ -2983,53 +3677,69 @@
            isOurUI(el);
   }
 
+  // Page shells (#app, main wrappers, etc.) cover nearly the whole viewport.
+  // Highlighting them washes the entire page orange — treat them like body
+  // for *hover* only so the preview stays clear until the cursor is on a
+  // more specific element.
+  function isPageShell(el) {
+    if (!el || isSkippable(el)) return true;
+    var r = el.getBoundingClientRect();
+    if (r.width < 1 || r.height < 1) return true;
+    var vw = window.innerWidth;
+    var vh = window.innerHeight;
+    // Covers ~full viewport (common layout roots / full-bleed wrappers).
+    if (r.width >= vw * 0.9 && r.height >= vh * 0.9) return true;
+    // Taller than the viewport and nearly full width (scrollable page shells).
+    if (r.width >= vw * 0.9 && r.height >= vh) return true;
+    return false;
+  }
+
+  function isHoverHighlightable(el) {
+    return !!el && !isSkippable(el) && !isPageShell(el) && !isOurUI(el);
+  }
+
+  // Clear the transient hover overlay when the pointer leaves the page.
+  // Keeps selection / multi-select highlights intact (those are intentional).
+  function clearHoverOverlay() {
+    if (popover && !popoverIsMulti && popoverTarget) {
+      // Single-target selection still uses the hover overlay as its highlight.
+      showTargetHighlight(popoverTarget);
+      return;
+    }
+    hideOverlay();
+  }
+
   /* ── events ────────────────────────────────────────────── */
 
   // Mousemove — hover highlight
   var lastMouseX = -1, lastMouseY = -1;
+  // True only while the pointer is over this document. Prevents the last
+  // hovered (often full-page) element from staying orange after the cursor
+  // leaves the window, and stops scroll/resize refresh from re-applying it.
+  var pointerInWindow = false;
 
   document.addEventListener('mousedown', function (e) {
     if (!active || e.button !== 0) return;
     if (isOurUI(e.target)) return;
-    if (measuring) {
-      e.preventDefault();
-      var src = resolveMeasureElement(e.clientX, e.clientY);
-      if (!src) {
-        // Mousedown on empty / skippable area — no drag, no capture change.
-        cancelMeasureDrag();
-        return;
-      }
-      measureDragging = true;
-      measureDragSource = src;
-      measureDragTarget = src;
-      refreshMeasure();
-      return;
-    }
     if (!commenting || popover) return;
     selectionPointerDown = true;
   }, true);
 
   document.addEventListener('mousemove', function (e) {
+    pointerInWindow = true;
     lastMouseX = e.clientX;
     lastMouseY = e.clientY;
-    if (measuring) {
-      if (isOurUI(e.target)) {
-        if (measureDragging) measureDragTarget = null;
-        else measureHoverTarget = null;
-        refreshMeasure();
-        return;
-      }
-      renderMeasureAt(e.clientX, e.clientY);
-      return;
-    }
     if (referencePicking) {
       if (isOurUI(e.target)) { hideOverlay(); return; }
       var refEl = document.elementFromPoint(e.clientX, e.clientY);
-      if (isSkippable(refEl)) { hideOverlay(); return; }
+      if (!isHoverHighlightable(refEl)) { hideOverlay(); return; }
       if (refEl !== hovered) { hovered = refEl; showOverlay(refEl, 'reference'); }
       return;
     }
-    if (!active || !commenting || popover) return;
+    // Hover highlight while commenting. Suppressed when a single-target
+    // popover is open; multi-mode keeps hover so shift+click can add more.
+    if (!active || !commenting) return;
+    if (popover && !popoverIsMulti) return;
     if (selectionPointerDown && getTextSelectionTarget()) {
       hideOverlay();
       hideTargetHighlight();
@@ -3037,25 +3747,29 @@
     }
     if (isOurUI(e.target)) { hideOverlay(); return; }
     var el = document.elementFromPoint(e.clientX, e.clientY);
-    if (isSkippable(el)) { hideOverlay(); return; }
-    if (el !== hovered) { hovered = el; showOverlay(el); }
+    if (!isHoverHighlightable(el)) { hideOverlay(); return; }
+    if (el !== hovered) {
+      hovered = el;
+      showOverlay(el);
+    }
   }, true);
+
+  // Pointer left the browser window / document — drop hover highlight so the
+  // page preview is clean. relatedTarget is null when leaving the document.
+  document.documentElement.addEventListener('mouseleave', function () {
+    pointerInWindow = false;
+    if (!active && !referencePicking) return;
+    clearHoverOverlay();
+  });
+
+  window.addEventListener('blur', function () {
+    pointerInWindow = false;
+    if (!active && !referencePicking) return;
+    clearHoverOverlay();
+  });
 
   document.addEventListener('mouseup', function (e) {
     if (!active || e.button !== 0) return;
-    if (measuring && measureDragging) {
-      e.preventDefault();
-      var endEl = resolveMeasureElement(e.clientX, e.clientY);
-      if (endEl && measureDragSource && endEl !== measureDragSource) {
-        measureCapturedSource = measureDragSource;
-        measureCapturedTarget = endEl;
-        measureHoverTarget = endEl;
-      }
-      // Invalid drag (same element or no element) — keep previous captured.
-      cancelMeasureDrag();
-      refreshMeasure();
-      return;
-    }
     if (!commenting) return;
     if (!selectionPointerDown) return;
     selectionPointerDown = false;
@@ -3086,14 +3800,6 @@
     }
     if (isOurUI(e.target)) return;
 
-    if (measuring) {
-      // Drags are handled in mousedown / mouseup. Suppress the click so links /
-      // buttons under the cursor don't activate.
-      e.preventDefault();
-      e.stopPropagation();
-      return;
-    }
-
     if (referencePicking && referenceEditor) {
       e.preventDefault();
       e.stopPropagation();
@@ -3105,8 +3811,45 @@
       return;
     }
 
-    // Close popover on any outside click, regardless of comment mode (#1)
+    // Shift+click while in comment mode — toggle the clicked element into the
+    // pending multi-target batch. Runs ahead of the outside-click-closes-
+    // popover branch so the multi popover stays open as the user iterates.
+    if (commenting && e.shiftKey) {
+      var multiEl = document.elementFromPoint(e.clientX, e.clientY);
+      if (multiEl && !isSkippable(multiEl)) {
+        e.preventDefault();
+        e.stopPropagation();
+        var multiTarget = prepareTarget(makeElementTarget(multiEl));
+        if (multiTarget && multiTarget.kind === 'element') {
+          // Snapshot any in-progress editor content before the rebuild so
+          // adding/removing a chip doesn't wipe what the user has typed.
+          var carriedClick = captureMultiEditorState();
+          if (isInMultiSelect(multiTarget)) removeFromMultiSelect(multiTarget);
+          else                              addToMultiSelect(multiTarget);
+          if (multiTargets.length === 0) {
+            clearDraft();
+            hidePopover();
+            hideTargetHighlight();
+            hideOverlay();
+          } else {
+            showMultiPopover(carriedClick);
+          }
+        }
+        return;
+      }
+    }
+
+    // Close popover on any outside click, regardless of comment mode (#1).
+    // Exception: a multi-mode popover preserves the in-progress selection on
+    // outside clicks — only Esc or removing all chips dismisses it.
     if (popover) {
+      if (popoverIsMulti) {
+        // Swallow the click so the underlying page button/link doesn't fire,
+        // but keep the popover open.
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
       hidePopover();
       hideTargetHighlight();
       hideOverlay();
@@ -3134,20 +3877,22 @@
 
   // Nav pill arrow key navigation (capture phase — fires before textarea stopPropagation)
   document.addEventListener('keydown', function (e) {
-    if (!active || !navPillActive || navCurrentId === null || annotations.length <= 1) return;
+    if (!active || !navPillActive || navCurrentId === null) return;
     if (inputFocused()) return;
     if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    var uniqueAnns = getUniqueAnnotations();
+    if (uniqueAnns.length <= 1) return;
     e.preventDefault();
     e.stopPropagation();
     var idx = -1;
-    for (var ni = 0; ni < annotations.length; ni++) {
-      if (annotations[ni].id === navCurrentId) { idx = ni; break; }
+    for (var ni = 0; ni < uniqueAnns.length; ni++) {
+      if (uniqueAnns[ni].id === navCurrentId) { idx = ni; break; }
     }
     if (idx === -1) return;
     var target = e.key === 'ArrowLeft'
-      ? (idx - 1 + annotations.length) % annotations.length
-      : (idx + 1) % annotations.length;
-    navPillTo(annotations[target]);
+      ? (idx - 1 + uniqueAnns.length) % uniqueAnns.length
+      : (idx + 1) % uniqueAnns.length;
+    navPillTo(uniqueAnns[target]);
   }, true);
 
   document.addEventListener('keydown', function (e) {
@@ -3155,6 +3900,9 @@
 
     if (popover || inputFocused()) {
       if (e.key === 'Escape' && popover) {
+        // Esc on the multi-mode popover discards the pending batch — same
+        // bail-out semantics as Esc on a single-target popover.
+        if (popoverIsMulti) clearMultiSelect();
         hidePopover();
         hideTargetHighlight();
         hideOverlay();
@@ -3166,45 +3914,30 @@
     var k = e.key.toLowerCase();
 
     if (e.key === 'Escape') {
-      if (!menuPanel.classList.contains('pp-hidden')) { hideMenu(); return; }
-      if (measuring) {
-        if (measureDragging) {
-          cancelMeasureDrag();
-          refreshMeasure();
-        } else if (measureCapturedSource || measureCapturedTarget) {
-          measureCapturedSource = null;
-          measureCapturedTarget = null;
-          refreshMeasure();
-        } else {
-          stopMeasuring();
-        }
-        return;
-      }
+      if (!menuPanel.classList.contains('pp-hidden')) { hideMenu(); resetTaps(); return; }
       if (commenting) {
         stopCommenting();
         hideTargetHighlight();
         selectionPointerDown = false;
+        resetTaps();
+        return;
+      }
+      // No tool active, no popover, no menu → double-Esc closes the toolbar.
+      if (active) {
+        if (tapKey === 'escape') {
+          resetTaps();
+          deactivate();
+        } else {
+          tapKey = 'escape';
+          tapCount = 1;
+          clearTimeout(tapTimer);
+          tapTimer = setTimeout(resetTaps, 400);
+        }
       }
       return;
     }
 
     if (e.metaKey || e.ctrlKey || e.altKey) return;
-
-    // M — toggle measure mode
-    if (k === 'm') {
-      e.preventDefault();
-      measuring ? stopMeasuring() : startMeasuring();
-      resetTaps();
-      return;
-    }
-
-    // U — cycle measurement unit (only while measuring)
-    if (k === 'u' && measuring) {
-      e.preventDefault();
-      setMeasureUnit(measureUnit === 'px' ? 'rem' : 'px');
-      resetTaps();
-      return;
-    }
 
     // ── keyboard navigation (when enabled + comment mode) ──
     if (keyNavEnabled && commenting) {
@@ -3241,6 +3974,28 @@
       if (e.key === 'Tab') {
         e.preventDefault();
         keyNavTo(cycleElement(!e.shiftKey));
+        resetTaps();
+        return;
+      }
+
+      // Shift+Enter — toggle the keyboard-navigated element into/out of the
+      // multi-target batch, mirroring the Shift+click flow for keyboard users.
+      if (e.key === 'Enter' && e.shiftKey && hovered && !isSkippable(hovered)) {
+        e.preventDefault();
+        var multiHoverTarget = prepareTarget(makeElementTarget(hovered));
+        if (multiHoverTarget) {
+          var carriedKey = captureMultiEditorState();
+          if (isInMultiSelect(multiHoverTarget)) removeFromMultiSelect(multiHoverTarget);
+          else                                   addToMultiSelect(multiHoverTarget);
+          if (multiTargets.length === 0) {
+            clearDraft();
+            hidePopover();
+            hideTargetHighlight();
+            hideOverlay();
+          } else {
+            showMultiPopover(carriedKey);
+          }
+        }
         resetTaps();
         return;
       }
@@ -3347,18 +4102,27 @@
     currentHash = newHash;
     currentStoreKey = newStoreKey;
     STORE_KEY = newStoreKey;
+    // Drafts are URL-keyed, so the new page has its own draft slot. We rebind
+    // here so subsequent save/load calls hit the right key; the old URL's
+    // draft (if any) stays attached to the old key until that page's own
+    // commit/Esc/timeout clears it.
+    DRAFT_KEY = getDraftKey();
+    // Re-arm the draft restore guard so the upcoming restore() call below
+    // gives the new URL its own one-shot draft check.
+    draftRestoreAttempted = false;
     clearRestoreTimer();
     annotations.forEach(function (a) { if (a.pinEl) a.pinEl.remove(); });
     annotations = [];
     nextId = 1;
+    // Multi-select state is page-scoped — a route change abandons whatever
+    // batch was being assembled before the navigation.
+    clearMultiSelect();
     hidePopover();
     hideTargetHighlight();
     hideOverlay();
     clearUndoState();
     clearBrowserSelection();
     selectionPointerDown = false;
-    resetMeasureState();
-    if (measuring) refreshMeasure();
     restore();
   }
 
@@ -3376,69 +4140,72 @@
 
   /* ── toolbar wiring ────────────────────────────────────── */
   btnComment.addEventListener('click', function (e) { e.stopPropagation(); commenting ? stopCommenting() : startCommenting(); });
-  btnMeasure.addEventListener('click', function (e) { e.stopPropagation(); measuring ? stopMeasuring() : startMeasuring(); });
-  unitBtns.forEach(function (b) {
-    b.addEventListener('click', function (e) {
-      e.stopPropagation();
-      setMeasureUnit(b.getAttribute('data-unit'));
-    });
-  });
   countEl.addEventListener('click', function (e) {
     e.stopPropagation();
-    if (annotations.length > 0) navPillTo(annotations[0]);
+    var uniqueAnns = getUniqueAnnotations();
+    if (uniqueAnns.length > 0) navPillTo(uniqueAnns[0]);
   });
   btnCopy.addEventListener('click', function (e) { e.stopPropagation(); copyAll(); });
-  btnSend.addEventListener('click', function (e) { e.stopPropagation(); copyAndClear(); });
   btnDelete.addEventListener('click', function (e) {
     e.stopPropagation();
     if (undoData) undo(); else deleteAll();
   });
   btnShortcuts.addEventListener('click', function (e) { e.stopPropagation(); toggleMenu(); });
-  btnClose.addEventListener('click', function (e) { e.stopPropagation(); deactivate(); });
+  btnClose.addEventListener('click', function (e) { e.stopPropagation(); deactivate(true); });
   toggle.addEventListener('click', function (e) { e.stopPropagation(); activate(); });
 
   /* ── nav pill wiring ──────────────────────────────────── */
   navPrev.addEventListener('click', function (e) {
     e.stopPropagation();
-    if (navCurrentId === null || annotations.length === 0) return;
+    var uniqueAnns = getUniqueAnnotations();
+    if (navCurrentId === null || uniqueAnns.length === 0) return;
     var idx = -1;
-    for (var i = 0; i < annotations.length; i++) {
-      if (annotations[i].id === navCurrentId) { idx = i; break; }
+    for (var i = 0; i < uniqueAnns.length; i++) {
+      if (uniqueAnns[i].id === navCurrentId) { idx = i; break; }
     }
     if (idx === -1) return;
-    var prevIdx = (idx - 1 + annotations.length) % annotations.length;
-    navPillTo(annotations[prevIdx]);
+    var prevIdx = (idx - 1 + uniqueAnns.length) % uniqueAnns.length;
+    navPillTo(uniqueAnns[prevIdx]);
   });
 
   navNext.addEventListener('click', function (e) {
     e.stopPropagation();
-    if (navCurrentId === null || annotations.length === 0) return;
+    var uniqueAnns = getUniqueAnnotations();
+    if (navCurrentId === null || uniqueAnns.length === 0) return;
     var idx = -1;
-    for (var i = 0; i < annotations.length; i++) {
-      if (annotations[i].id === navCurrentId) { idx = i; break; }
+    for (var i = 0; i < uniqueAnns.length; i++) {
+      if (uniqueAnns[i].id === navCurrentId) { idx = i; break; }
     }
     if (idx === -1) return;
-    var nextIdx = (idx + 1) % annotations.length;
-    navPillTo(annotations[nextIdx]);
+    var nextIdx = (idx + 1) % uniqueAnns.length;
+    navPillTo(uniqueAnns[nextIdx]);
   });
 
   navPill.addEventListener('click', function (e) { e.stopPropagation(); });
 
   /* ── menu settings wiring ─────────────────────────────── */
   var keyNavToggle = menuPanel.querySelector('.pp-keynav-toggle');
+  var clearAfterCopyToggle = menuPanel.querySelector('.pp-clearcopy-toggle');
 
   keyNavToggle.addEventListener('change', function () {
     keyNavEnabled = this.checked;
     safeStorageSet({ keyNavEnabled: keyNavEnabled });
   });
 
+  clearAfterCopyToggle.addEventListener('change', function () {
+    clearAfterCopy = this.checked;
+    safeStorageSet({ clearAfterCopy: clearAfterCopy });
+  });
+
   // Stop clicks inside menu from propagating (prevents toolbar close)
   menuPanel.addEventListener('click', function (e) { e.stopPropagation(); });
 
   // Restore settings
-  safeStorageGet(['keyNavEnabled', 'theme', 'toolbarPosition'], function (data) {
+  safeStorageGet(['keyNavEnabled', 'clearAfterCopy', 'theme', 'toolbarPosition'], function (data) {
     keyNavEnabled = data.keyNavEnabled !== undefined ? !!data.keyNavEnabled : true;
     keyNavToggle.checked = keyNavEnabled;
+    clearAfterCopy = !!data.clearAfterCopy;
+    clearAfterCopyToggle.checked = clearAfterCopy;
     applyTheme(data.theme);
     applyToolbarPosition(data.toolbarPosition);
     if (data.toolbarPosition !== toolbarPosition) {
@@ -3472,15 +4239,22 @@
 
     left = Math.max(8, Math.min(left, window.innerWidth - tw - 8));
 
+    // The settings menu stacks above (or below) the toolbar in the
+    // direction the tooltip wants to grow. When it's open, use the
+    // menu's far edge as the anchor instead of the button's so the
+    // tooltip never lands tucked behind the menu panel.
+    var menuIsOpen = !menuPanel.classList.contains('pp-hidden');
+    var awayRect = menuIsOpen ? menuPanel.getBoundingClientRect() : br;
+
     if (preferBelow) {
-      top = br.bottom + 10;
+      top = awayRect.bottom + 10;
       if (top + th > window.innerHeight - 8) {
-        top = Math.max(8, br.top - th - 10);
+        top = Math.max(8, awayRect.top - th - 10);
       }
     } else {
-      top = br.top - th - 10;
+      top = awayRect.top - th - 10;
       if (top < 8) {
-        top = Math.min(window.innerHeight - th - 8, br.bottom + 10);
+        top = Math.min(window.innerHeight - th - 8, awayRect.bottom + 10);
       }
     }
 
@@ -3519,6 +4293,19 @@
 
   function getSiteKey() {
     return isLocalHtmlFile() ? 'file://local-html' : location.hostname;
+  }
+
+  // Record this domain as disabled (same list the popup's per-site toggle
+  // uses) so the load-time check below hides the toggle after a refresh.
+  function persistSiteDisabled() {
+    var siteKey = getSiteKey();
+    safeStorageGet('disabledHosts', function (data) {
+      var list = data.disabledHosts || [];
+      if (list.indexOf(siteKey) === -1) {
+        list.push(siteKey);
+        safeStorageSet({ disabledHosts: list });
+      }
+    });
   }
 
   function isDevHost() {

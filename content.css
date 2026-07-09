@@ -2,8 +2,8 @@
   --pp-accent: #e85102;
   --pp-accent-soft: rgba(232, 81, 2, 0.14);
   --pp-accent-border: rgba(232, 81, 2, 0.42);
-  --pp-bg: rgba(26, 24, 22, 0.76);
-  --pp-bg-strong: rgba(34, 31, 28, 0.88);
+  --pp-bg: #0a0a0a;
+  --pp-bg-strong: #161616;
   --pp-bg-soft: rgba(255, 255, 255, 0.05);
   --pp-text: #f6f2ec;
   --pp-text-dim: #ada69c;
@@ -16,13 +16,20 @@
   --pp-shadow: 0 18px 42px rgba(0, 0, 0, 0.24);
   --pp-shadow-soft: 0 10px 26px rgba(0, 0, 0, 0.16);
   --pp-radius-outer: 18px;
-  --pp-radius-inner: 12px;
+  --pp-radius-inner: 10px;
   --pp-shell-pad: 6px;
-  --pp-popover-pad: 12px;
+  --pp-popover-pad: 10px;
   --pp-control-radius: calc(var(--pp-radius-inner) - var(--pp-shell-pad));
   --pp-button-size: 38px;
   --pp-toolbar-size: calc(var(--pp-button-size) + (var(--pp-shell-pad) * 2) + 2px);
   --pp-blur: blur(18px);
+  --pp-duration: 140ms;
+  --pp-blur-duration: 80ms;
+  --pp-ease: cubic-bezier(0.2, 0, 0, 1);
+  --pp-blur-amount: 6px;
+  --pp-blur-amount-sm: 4px;
+  --pp-scrollbar-thumb: rgba(255, 255, 255, 0.22);
+  --pp-scrollbar-thumb-hover: rgba(255, 255, 255, 0.36);
   position: fixed;
   top: 0;
   left: 0;
@@ -36,8 +43,8 @@
   --pp-accent: #e85102;
   --pp-accent-soft: rgba(232, 81, 2, 0.12);
   --pp-accent-border: rgba(232, 81, 2, 0.32);
-  --pp-bg: rgba(247, 242, 235, 0.8);
-  --pp-bg-strong: rgba(255, 251, 246, 0.9);
+  --pp-bg: #f7f2eb;
+  --pp-bg-strong: #fffbf6;
   --pp-bg-soft: rgba(24, 18, 14, 0.04);
   --pp-text: #1a1613;
   --pp-text-dim: #72695f;
@@ -49,15 +56,20 @@
   --pp-badge-border: var(--pp-accent);
   --pp-shadow: 0 16px 34px rgba(79, 57, 33, 0.12);
   --pp-shadow-soft: 0 10px 24px rgba(79, 57, 33, 0.1);
+  --pp-scrollbar-thumb: rgba(24, 22, 20, 0.22);
+  --pp-scrollbar-thumb-hover: rgba(24, 22, 20, 0.4);
 }
 
+#pinpoint-root,
 #pinpoint-root *,
 #pinpoint-root *::before,
 #pinpoint-root *::after {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
-  font-family: "Geist", "Segoe UI", sans-serif;
+  /* !important keeps the host page's CSS (especially form-element resets and
+     anything tagged !important) from reaching in and re-skinning our UI. */
+  font-family: "Geist", "Segoe UI", sans-serif !important;
   line-height: 1.4;
   color: var(--pp-text);
   -webkit-font-smoothing: antialiased;
@@ -68,19 +80,6 @@ html.pp-commenting,
 html.pp-commenting body,
 html.pp-commenting body * {
   cursor: crosshair !important;
-}
-
-html.pp-measuring,
-html.pp-measuring body,
-html.pp-measuring body * {
-  cursor: crosshair !important;
-}
-
-html.pp-measuring,
-html.pp-measuring body,
-html.pp-measuring body * {
-  user-select: none !important;
-  -webkit-user-select: none !important;
 }
 
 #pinpoint-root .pp-bar-btn,
@@ -113,12 +112,15 @@ html.pp-measuring body * {
   pointer-events: none;
   z-index: 2147483641;
   opacity: 0;
-  transition-property: opacity, top, left, width, height;
-  transition-duration: 100ms, 70ms, 70ms, 70ms, 70ms;
+  filter: blur(var(--pp-blur-amount-sm));
+  transition-property: opacity, filter, top, left, width, height;
+  transition-duration: var(--pp-duration), var(--pp-blur-duration), 70ms, 70ms, 70ms, 70ms;
+  transition-timing-function: var(--pp-ease);
 }
 
 #pinpoint-root .pp-overlay.pp-on {
   opacity: 1;
+  filter: blur(0);
 }
 
 #pinpoint-root .pp-overlay.pp-ref-on {
@@ -160,21 +162,29 @@ html.pp-measuring body * {
   background: rgba(232, 81, 2, 0.14);
 }
 
-#pinpoint-root .pp-tip,
-#pinpoint-root .pp-bar-tip,
-#pinpoint-root .pp-toast,
-#pinpoint-root .pp-nav-pill,
-#pinpoint-root .pp-menu,
-#pinpoint-root .pp-popover,
-#pinpoint-root .pp-bar,
-#pinpoint-root .pp-toggle {
-  backdrop-filter: var(--pp-blur);
-  -webkit-backdrop-filter: var(--pp-blur);
+/* Locked variant — a target that's part of a pending multi-select batch.
+   Stronger accent and a dashed inner edge so it reads as "held" instead of
+   merely "hovered" alongside the selection overlay. */
+#pinpoint-root .pp-target-highlight-locked {
+  background: rgba(232, 81, 2, 0.14);
+  border: 1px solid var(--pp-accent);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.06),
+    0 0 0 2px rgba(232, 81, 2, 0.18);
+}
+
+#pinpoint-root .pp-target-highlight-locked::after {
+  content: "";
+  position: absolute;
+  inset: 3px;
+  border-radius: 5px;
+  border: 1px dashed rgba(232, 81, 2, 0.55);
+  pointer-events: none;
 }
 
 #pinpoint-root .pp-tip {
   position: fixed;
-  background: var(--pp-bg-strong);
+  background: var(--pp-bg);
   border: 1px solid var(--pp-border);
   color: var(--pp-text-dim);
   padding: 6px 12px;
@@ -187,12 +197,52 @@ html.pp-measuring body * {
   pointer-events: none;
   z-index: 2147483644;
   opacity: 0;
-  transition: opacity 100ms ease;
+  filter: blur(var(--pp-blur-amount-sm));
+  transition-property: opacity, filter;
+  transition-duration: var(--pp-duration), var(--pp-blur-duration);
+  transition-timing-function: var(--pp-ease);
   box-shadow: var(--pp-shadow-soft);
 }
 
 #pinpoint-root .pp-tip.pp-on {
   opacity: 1;
+  filter: blur(0);
+}
+
+/* Floating preview of an annotation's notes shown on pin hover. Matches the
+   toolbar tooltip family so colors and blur read as one system. Wraps to
+   two lines max to keep dense annotations readable without ballooning. */
+#pinpoint-root .pp-pin-tip {
+  position: fixed;
+  background: var(--pp-bg);
+  border: 1px solid var(--pp-border);
+  color: var(--pp-text);
+  padding: 8px 12px;
+  border-radius: 12px;
+  font-size: 12.5px;
+  line-height: 1.4;
+  font-weight: 500;
+  max-width: 260px;
+  pointer-events: none;
+  z-index: 2147483647;
+  opacity: 0;
+  transform: translateY(4px);
+  filter: blur(var(--pp-blur-amount-sm));
+  transition-property: opacity, transform, filter;
+  transition-duration: var(--pp-duration), var(--pp-duration), var(--pp-blur-duration);
+  transition-timing-function: var(--pp-ease);
+  box-shadow: var(--pp-shadow-soft);
+  word-wrap: break-word;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+#pinpoint-root .pp-pin-tip.pp-on {
+  opacity: 1;
+  transform: translateY(0);
+  filter: blur(0);
 }
 
 #pinpoint-root .pp-pin {
@@ -200,7 +250,7 @@ html.pp-measuring body * {
   width: 28px;
   height: 28px;
   border-radius: 10px;
-  background: rgba(232, 81, 2, 0.96);
+  background: var(--pp-accent);
   border: 1px solid rgba(255, 255, 255, 0.16);
   color: #fff;
   font-size: 11px;
@@ -210,9 +260,47 @@ html.pp-measuring body * {
   justify-content: center;
   pointer-events: auto;
   box-shadow: 0 12px 20px rgba(232, 81, 2, 0.18);
-  transition-property: transform, background, border-color, box-shadow;
-  transition-duration: 160ms;
+  transition-property: transform, background, border-color, box-shadow, filter;
+  transition-duration: var(--pp-duration), var(--pp-duration), var(--pp-duration), var(--pp-duration), var(--pp-blur-duration);
+  transition-timing-function: var(--pp-ease);
   user-select: none;
+}
+
+/* Number / icon swap on hover. Both children stack absolutely so the pin
+   stays the same size; opacity + blur fade in lockstep on the same curve
+   for a single smooth morph instead of two staggered transitions. The
+   incoming icon waits a beat behind the outgoing number so they don't
+   collide at mid-opacity. */
+#pinpoint-root .pp-pin .pp-pin-num,
+#pinpoint-root .pp-pin .pp-pin-icon {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  transition: opacity 220ms cubic-bezier(0.32, 0.72, 0, 1),
+              filter 220ms cubic-bezier(0.32, 0.72, 0, 1);
+  will-change: opacity, filter;
+}
+
+#pinpoint-root .pp-pin .pp-pin-icon {
+  opacity: 0;
+  filter: blur(var(--pp-blur-amount-sm));
+  transition-delay: 0ms, 0ms;
+}
+
+#pinpoint-root .pp-pin:hover .pp-pin-num,
+#pinpoint-root .pp-pin:focus-visible .pp-pin-num {
+  opacity: 0;
+  filter: blur(var(--pp-blur-amount-sm));
+}
+
+#pinpoint-root .pp-pin:hover .pp-pin-icon,
+#pinpoint-root .pp-pin:focus-visible .pp-pin-icon {
+  opacity: 1;
+  filter: blur(0);
+  transition-delay: 60ms, 60ms;
 }
 
 #pinpoint-root .pp-pin:hover {
@@ -236,7 +324,7 @@ html.pp-measuring body * {
 }
 
 #pinpoint-root .pp-pin.pp-pin-orphaned {
-  background: rgba(96, 92, 87, 0.92);
+  background: #524e49;
   border-color: rgba(255, 255, 255, 0.1);
   box-shadow: 0 10px 18px rgba(0, 0, 0, 0.16);
 }
@@ -264,8 +352,9 @@ html.pp-measuring body * {
   background: transparent;
   color: var(--pp-text-dim);
   outline: none;
-  transition-property: transform, background, color, opacity, border-color, box-shadow;
-  transition-duration: 160ms;
+  transition-property: transform, background, color, opacity, border-color, box-shadow, filter;
+  transition-duration: var(--pp-duration), var(--pp-duration), var(--pp-duration), var(--pp-duration), var(--pp-duration), var(--pp-duration), var(--pp-blur-duration);
+  transition-timing-function: var(--pp-ease);
 }
 
 #pinpoint-root .pp-bar-btn {
@@ -283,8 +372,13 @@ html.pp-measuring body * {
 #pinpoint-root .pp-pop-ref:hover,
 #pinpoint-root .pp-ref-picker:hover,
 #pinpoint-root .pp-pop-delete:hover {
+  /* Glass hover: translucent fill plus a faint inner edge so the squircle
+     reads as a lifted panel, not a flat block. */
   background: var(--pp-bg-soft);
   color: var(--pp-text);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.05);
 }
 
 #pinpoint-root .pp-bar-btn:active,
@@ -296,9 +390,15 @@ html.pp-measuring body * {
 
 #pinpoint-root .pp-bar-btn.pp-active-btn,
 #pinpoint-root .pp-pop-submit.pp-submit-on {
+  /* Glassmorphic "on" state: layer a top-edge highlight + faint inner
+     border over the accent so the chip reads like glass lit from above,
+     mirroring the macOS-style toolbar in the reference. */
   background: var(--pp-accent);
   color: #fff !important;
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.10),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.10);
 }
 
 #pinpoint-root .pp-bar-btn.pp-active-btn,
@@ -358,7 +458,7 @@ html.pp-measuring body * {
   text-align: center;
   cursor: pointer;
   font-variant-numeric: tabular-nums;
-  transition: background 160ms ease;
+  transition: background var(--pp-duration) var(--pp-ease);
 }
 
 #pinpoint-root .pp-count:hover {
@@ -406,13 +506,13 @@ html.pp-measuring body * {
 }
 
 @keyframes pp-badge-pop {
-  0% { transform: scale(0.7); }
-  70% { transform: scale(1.1); }
-  100% { transform: scale(1); }
+  0% { transform: scale(0.7); filter: blur(var(--pp-blur-amount-sm)); }
+  70% { transform: scale(1.1); filter: blur(0); }
+  100% { transform: scale(1); filter: blur(0); }
 }
 
 #pinpoint-root .pp-toggle-badge.pp-badge-pop {
-  animation: pp-badge-pop 240ms cubic-bezier(0.22, 1, 0.36, 1);
+  animation: pp-badge-pop var(--pp-duration) var(--pp-ease);
 }
 
 #pinpoint-root .pp-popover,
@@ -427,7 +527,7 @@ html.pp-measuring body * {
 
 #pinpoint-root .pp-popover {
   position: fixed;
-  width: 374px;
+  width: 312px;
   max-width: calc(100vw - 16px);
   max-height: calc(100vh - 16px);
   overflow-y: auto;
@@ -438,19 +538,24 @@ html.pp-measuring body * {
   pointer-events: auto;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  animation: pp-pop-in 140ms cubic-bezier(0.22, 1, 0.36, 1);
-  background: var(--pp-bg-strong);
+  gap: 6px;
+  animation: pp-pop-in var(--pp-duration) var(--pp-ease);
+  background: var(--pp-bg);
 }
 
 @keyframes pp-pop-in {
   from {
     opacity: 0;
     transform: translateY(6px) scale(0.98);
+    filter: blur(var(--pp-blur-amount));
+  }
+  57% {
+    filter: blur(0);
   }
   to {
     opacity: 1;
     transform: translateY(0) scale(1);
+    filter: blur(0);
   }
 }
 
@@ -515,19 +620,124 @@ html.pp-measuring body * {
   padding-top: 0;
 }
 
+/* Multi-target popover header — replaces the quote block when the popover
+   is opened against a pending Shift+click selection of N elements. No
+   colored container: the chips themselves carry the visual weight, matching
+   the existing reference-chip pattern from the eyedropper flow. */
+#pinpoint-root .pp-pop-multi-header {
+  display: grid;
+  gap: 8px;
+  padding: 2px 2px 4px;
+}
+
+#pinpoint-root .pp-pop-multi-title {
+  color: var(--pp-text);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+/* Cap the chip rail at ~5 rows worth of chips so the editor row is always
+   visible without the popover itself needing to scroll. Past that the rail
+   scrolls internally — the popover's existing scrollbar styling applies. */
+#pinpoint-root .pp-pop-multi-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  max-height: 160px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--pp-scrollbar-thumb) transparent;
+}
+
+#pinpoint-root .pp-pop-multi-chips::-webkit-scrollbar { width: 6px; }
+#pinpoint-root .pp-pop-multi-chips::-webkit-scrollbar-track { background: transparent; }
+#pinpoint-root .pp-pop-multi-chips::-webkit-scrollbar-thumb {
+  background: var(--pp-scrollbar-thumb);
+  border-radius: 3px;
+}
+#pinpoint-root .pp-pop-multi-chips::-webkit-scrollbar-thumb:hover {
+  background: var(--pp-scrollbar-thumb-hover);
+}
+
+/* Chip styling mirrors .pp-ref-chip — the eyedropper-created tags users
+   already recognise from the editor. The trailing × remove button is the
+   only multi-specific affordance. */
+#pinpoint-root .pp-multi-chip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  min-height: 24px;
+  margin: 3px 2px;
+  padding: 2px 4px 2px 9px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.11);
+  color: rgba(255, 255, 255, 0.88);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+#pinpoint-root[data-theme="light"] .pp-multi-chip {
+  background: rgba(24, 22, 20, 0.07);
+  color: rgba(24, 22, 20, 0.78);
+  box-shadow:
+    inset 0 0 0 1px rgba(24, 22, 20, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.72);
+}
+
+#pinpoint-root .pp-multi-chip-label {
+  display: inline-block;
+  min-width: 0;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#pinpoint-root .pp-multi-chip-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font-size: 13px;
+  line-height: 1;
+  opacity: 0.55;
+  cursor: pointer !important;
+  transition: background var(--pp-duration) var(--pp-ease),
+              color var(--pp-duration) var(--pp-ease),
+              opacity var(--pp-duration) var(--pp-ease);
+}
+
+#pinpoint-root .pp-multi-chip-remove:hover {
+  background: var(--pp-accent);
+  color: #fff;
+  opacity: 1;
+}
+
 #pinpoint-root .pp-comment-card,
 #pinpoint-root .pp-new-comment-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 6px;
+  gap: 4px;
   align-items: start;
-  padding: 8px 0 10px;
-  border-bottom: 1px solid var(--pp-border);
+  padding: 4px 0 4px;
 }
+
+/* Cards stack with their own vertical padding doing the spacing — the old
+   1px separator added visual noise the user found distracting, especially
+   for multi-note annotations where the header actions also repeat. */
 
 #pinpoint-root .pp-new-comment-row {
   padding: 0;
-  border-bottom: 0;
 }
 
 #pinpoint-root .pp-popover > .pp-comment-card:first-child {
@@ -568,7 +778,9 @@ html.pp-measuring body * {
   border-radius: var(--pp-radius-inner);
   background: rgba(255, 255, 255, 0.04);
   padding: var(--pp-shell-pad);
-  transition: border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
+  transition-property: border-color, box-shadow, background;
+  transition-duration: var(--pp-duration);
+  transition-timing-function: var(--pp-ease);
 }
 
 #pinpoint-root[data-theme="light"] .pp-input-shell {
@@ -589,8 +801,8 @@ html.pp-measuring body * {
 #pinpoint-root .pp-comment-card .pp-pop-ref,
 #pinpoint-root .pp-comment-card .pp-pop-save,
 #pinpoint-root .pp-comment-card .pp-pop-delete {
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   flex-shrink: 0;
 }
 
@@ -600,19 +812,79 @@ html.pp-measuring body * {
   min-width: 0;
 }
 
+/* Header row holding the badge on the left and per-annotation actions on the
+   right. Sticky keeps the badge anchored when there are many cards. No own
+   background — the popover already paints var(--pp-bg) + backdrop-blur and
+   stacking another semi-transparent layer would visibly darken this row. */
 #pinpoint-root .pp-comment-badge-wrap {
   display: flex;
   align-items: center;
-  justify-content: flex-start;
-  padding-top: 0;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 0;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+/* Adding another note to an existing target: the cards above already show
+   the annotation number, so we drop this row's badge entirely and let the
+   input shell sit flush. */
+#pinpoint-root .pp-comment-badge-wrap-hidden {
+  display: none;
+}
+
+/* Subsequent cards for the same annotation reserve the badge's footprint
+   so the copy/delete buttons stay right-aligned, but the badge itself is
+   hidden — only the first card displays the number. */
+#pinpoint-root .pp-comment-badge.pp-comment-badge-invisible {
+  visibility: hidden;
+}
+
+/* Secondary cards keep their header actions invisible until the row is
+   hovered/focused — first card stays "loud", the rest reveal on demand
+   so 5+ notes don't read as five identical toolbars stacked. Opacity is
+   animated for parity with the other in-popover transitions. */
+#pinpoint-root .pp-comment-card-secondary .pp-comment-header-actions {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--pp-duration) var(--pp-ease);
+}
+
+#pinpoint-root .pp-comment-card-secondary:hover .pp-comment-header-actions,
+#pinpoint-root .pp-comment-card-secondary:focus-within .pp-comment-header-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+#pinpoint-root .pp-comment-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+}
+
+#pinpoint-root .pp-comment-header-actions .pp-pop-btn {
+  width: 28px;
+  height: 28px;
+  color: var(--pp-text-dim);
+}
+
+#pinpoint-root .pp-comment-header-actions .pp-pop-btn:hover {
+  color: var(--pp-text);
+}
+
+#pinpoint-root .pp-comment-header-actions .pp-pop-delete:hover {
+  color: rgb(248, 113, 113);
+  background: rgba(220, 38, 38, 0.14);
 }
 
 #pinpoint-root .pp-comment-editor-row {
-  padding: 8px;
+  padding: 5px 8px;
 }
 
 #pinpoint-root .pp-new-comment-editor-row {
-  padding: 8px;
+  padding: 5px 8px;
 }
 
 #pinpoint-root .pp-comment-control-row {
@@ -632,37 +904,40 @@ html.pp-measuring body * {
 #pinpoint-root .pp-new-comment {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding-top: 2px;
+  gap: 6px;
+  padding-top: 0;
 }
 
+/* When the new-comment section follows existing notes we add just a hair of
+   breathing room — the popover's own gap + the card's bottom padding already
+   provide most of the separation. */
 #pinpoint-root .pp-comment-card + .pp-new-comment {
-  padding-top: 10px;
+  padding-top: 2px;
 }
 
 #pinpoint-root .pp-pop-input {
   width: 100%;
-  min-height: 70px;
+  min-height: 38px;
   border: 0;
   background: transparent;
   resize: vertical;
   outline: none;
-  font-size: 15px;
-  line-height: 1.68;
+  font-size: 14px;
+  line-height: 1.5;
   color: var(--pp-text);
-  padding: 6px 8px;
+  padding: 4px 7px;
 }
 
 #pinpoint-root .pp-pop-editor {
   width: 100%;
-  min-height: 70px;
-  max-height: 220px;
+  min-height: 38px;
+  max-height: 180px;
   overflow-y: auto;
   outline: none;
-  font-size: 15px;
-  line-height: 1.68;
+  font-size: 14px;
+  line-height: 1.5;
   color: var(--pp-text);
-  padding: 6px 8px;
+  padding: 4px 7px;
   white-space: pre-wrap;
   word-break: break-word;
   text-wrap: pretty;
@@ -670,14 +945,14 @@ html.pp-measuring body * {
 }
 
 #pinpoint-root .pp-comment-card .pp-pop-input {
-  min-height: 54px;
-  font-size: 14px;
+  min-height: 30px;
+  font-size: 13px;
 }
 
 #pinpoint-root .pp-comment-card .pp-pop-editor {
-  min-height: 54px;
-  font-size: 14px;
-  padding: 4px 4px 6px 0;
+  min-height: 30px;
+  font-size: 13px;
+  padding: 3px 4px 4px 0;
 }
 
 #pinpoint-root .pp-pop-input::placeholder {
@@ -702,14 +977,14 @@ html.pp-measuring body * {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 36px;
-  height: 36px;
+  width: 32px;
+  height: 32px;
   border-radius: var(--pp-control-radius);
 }
 
 #pinpoint-root .pp-input-shell-new .pp-pop-btn {
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
 }
 
 #pinpoint-root .pp-pop-submit {
@@ -741,12 +1016,12 @@ html.pp-measuring body * {
     inset 0 0 0 1px rgba(255, 255, 255, 0.16),
     inset 0 1px 0 rgba(255, 255, 255, 0.07);
   font-size: 12px;
-  font-weight: 650;
   line-height: 1.2;
   vertical-align: baseline;
   cursor: default;
   transition-property: background, color, padding, box-shadow;
-  transition-duration: 160ms;
+  transition-duration: var(--pp-duration);
+  transition-timing-function: var(--pp-ease);
 }
 
 #pinpoint-root[data-theme="light"] .pp-ref-chip {
@@ -769,13 +1044,33 @@ html.pp-measuring body * {
   white-space: nowrap;
 }
 
+/* Neutralize host-page focus styling (outlines/rings) leaking onto the
+   extension UI. Host rules can use !important, so we must too. We only
+   reset the outline here to avoid clobbering intentional box-shadows. */
+#pinpoint-root :focus,
+#pinpoint-root :focus-visible,
+#pinpoint-root :focus-within {
+  outline: none !important;
+}
+
+/* These controls signal focus via outline only, never box-shadow, so it is
+   safe to also strip any host-applied box-shadow focus ring from them. */
+#pinpoint-root .pp-bar-btn:focus,
+#pinpoint-root .pp-toggle:focus,
+#pinpoint-root .pp-pin:focus,
+#pinpoint-root .pp-pop-btn:focus,
+#pinpoint-root .pp-nav-btn:focus,
+#pinpoint-root .pp-switch-input:focus {
+  box-shadow: none !important;
+}
+
 #pinpoint-root .pp-bar-btn:focus-visible,
 #pinpoint-root .pp-toggle:focus-visible,
 #pinpoint-root .pp-pin:focus-visible,
 #pinpoint-root .pp-pop-btn:focus-visible,
 #pinpoint-root .pp-nav-btn:focus-visible,
 #pinpoint-root .pp-switch-input:focus-visible + .pp-switch-track {
-  outline: 2px solid var(--pp-accent);
+  outline: 2px solid var(--pp-accent) !important;
   outline-offset: 2px;
 }
 
@@ -797,7 +1092,7 @@ html.pp-measuring body * {
 }
 
 #pinpoint-root .pp-shake {
-  animation: pp-shake 300ms ease;
+  animation: pp-shake 300ms var(--pp-ease);
 }
 
 #pinpoint-root .pp-bar-tip,
@@ -806,7 +1101,7 @@ html.pp-measuring body * {
   position: fixed;
   border: 1px solid var(--pp-border);
   border-radius: 14px;
-  background: var(--pp-bg-strong);
+  background: var(--pp-bg);
   box-shadow: var(--pp-shadow-soft);
 }
 
@@ -814,18 +1109,28 @@ html.pp-measuring body * {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 8px 12px;
+  /* Right padding matches the vertical padding so the trailing key cap has
+     equal breathing room on top/right/bottom — the cap looks centered in
+     its end of the pill instead of floating. Left keeps a bit more room
+     so the label doesn't crowd the rounded edge. */
+  padding: 8px 8px 8px 12px;
+  /* outer (18) = inner .pp-key (10) + vertical padding (8) */
+  border-radius: 18px;
   white-space: nowrap;
   pointer-events: none;
   z-index: 2147483647;
   opacity: 0;
   transform: translateY(4px);
-  transition: opacity 120ms ease, transform 120ms ease;
+  filter: blur(var(--pp-blur-amount-sm));
+  transition-property: opacity, transform, filter;
+  transition-duration: var(--pp-duration), var(--pp-duration), var(--pp-blur-duration);
+  transition-timing-function: var(--pp-ease);
 }
 
 #pinpoint-root .pp-bar-tip.pp-on {
   opacity: 1;
   transform: translateY(0);
+  filter: blur(0);
 }
 
 #pinpoint-root .pp-bar-tip-label {
@@ -844,10 +1149,14 @@ html.pp-measuring body * {
   min-width: 30px;
   height: 30px;
   padding: 0 10px;
-  border-radius: 10px;
+  /* Keycap radius/fill mirror the toolbar button hover state so the menu's
+     shortcut chips and the bar's icon buttons read as the same component. */
+  border-radius: var(--pp-radius-inner);
   border: 0;
-  background: rgba(255, 255, 255, 0.04);
-  box-shadow: inset 0 0 0 1px var(--pp-border);
+  background: var(--pp-bg-soft);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.05);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -859,10 +1168,6 @@ html.pp-measuring body * {
   font-variant-numeric: tabular-nums;
 }
 
-#pinpoint-root[data-theme="light"] .pp-key {
-  background: rgba(24, 22, 20, 0.03);
-}
-
 #pinpoint-root .pp-menu {
   position: fixed;
   width: min(320px, calc(100vw - 24px));
@@ -872,7 +1177,7 @@ html.pp-measuring body * {
   z-index: 2147483647;
   pointer-events: auto;
   overflow-y: auto;
-  animation: pp-pop-in 140ms cubic-bezier(0.22, 1, 0.36, 1);
+  animation: pp-pop-in var(--pp-duration) var(--pp-ease);
 }
 
 #pinpoint-root .pp-menu-section {
@@ -927,7 +1232,9 @@ html.pp-measuring body * {
   border: 1px solid var(--pp-border);
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.06);
-  transition: background 160ms ease, border-color 160ms ease;
+  transition-property: background, border-color;
+  transition-duration: var(--pp-duration);
+  transition-timing-function: var(--pp-ease);
 }
 
 #pinpoint-root .pp-switch-track::after {
@@ -939,11 +1246,13 @@ html.pp-measuring body * {
   height: 16px;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.74);
-  transition: transform 160ms ease, background 160ms ease;
+  transition-property: transform, background;
+  transition-duration: var(--pp-duration);
+  transition-timing-function: var(--pp-ease);
 }
 
 #pinpoint-root .pp-switch-input:checked + .pp-switch-track {
-  background: rgba(232, 81, 2, 0.92);
+  background: var(--pp-accent);
   border-color: transparent;
 }
 
@@ -975,21 +1284,23 @@ html.pp-measuring body * {
 }
 
 @keyframes pp-toast-in {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; transform: translateY(8px); filter: blur(var(--pp-blur-amount)); }
+  57% { filter: blur(0); }
+  to { opacity: 1; transform: translateY(0); filter: blur(0); }
 }
 
 @keyframes pp-toast-out {
-  from { opacity: 1; transform: translateY(0); }
-  to { opacity: 0; transform: translateY(8px); }
+  from { opacity: 1; transform: translateY(0); filter: blur(0); }
+  43% { filter: blur(var(--pp-blur-amount)); }
+  to { opacity: 0; transform: translateY(8px); filter: blur(var(--pp-blur-amount)); }
 }
 
 #pinpoint-root .pp-toast.pp-toast-in {
-  animation: pp-toast-in 220ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation: pp-toast-in var(--pp-duration) var(--pp-ease) forwards;
 }
 
 #pinpoint-root .pp-toast.pp-toast-out {
-  animation: pp-toast-out 260ms cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  animation: pp-toast-out var(--pp-duration) var(--pp-ease) forwards;
 }
 
 #pinpoint-root .pp-orphan-header {
@@ -1001,7 +1312,7 @@ html.pp-measuring body * {
 }
 
 #pinpoint-root .pp-badge-orphan {
-  background: rgba(96, 92, 87, 0.9) !important;
+  background: #524e49 !important;
 }
 
 #pinpoint-root .pp-orphan-label {
@@ -1024,7 +1335,7 @@ html.pp-measuring body * {
   background: rgba(255, 255, 255, 0.03);
   color: var(--pp-text-dim);
   font-size: 11px;
-  font-family: "Geist Mono", "SF Mono", "JetBrains Mono", monospace;
+  font-family: "Geist Mono", "SF Mono", "JetBrains Mono", monospace !important;
   word-break: break-word;
 }
 
@@ -1033,27 +1344,31 @@ html.pp-measuring body * {
   align-items: center;
   gap: 4px;
   padding: 4px;
+  /* outer (16) = inner .pp-nav-btn (12) + padding (4) */
+  border-radius: 16px;
   background: var(--pp-bg);
   z-index: 2147483646;
   pointer-events: auto;
 }
 
 @keyframes pp-pill-in {
-  from { opacity: 0; transform: translateY(6px) scale(0.96); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
+  from { opacity: 0; transform: translateY(6px) scale(0.96); filter: blur(var(--pp-blur-amount)); }
+  57% { filter: blur(0); }
+  to { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
 }
 
 @keyframes pp-pill-out {
-  from { opacity: 1; transform: translateY(0) scale(1); }
-  to { opacity: 0; transform: translateY(6px) scale(0.96); }
+  from { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+  43% { filter: blur(var(--pp-blur-amount)); }
+  to { opacity: 0; transform: translateY(6px) scale(0.96); filter: blur(var(--pp-blur-amount)); }
 }
 
 #pinpoint-root .pp-nav-pill.pp-pill-in {
-  animation: pp-pill-in 150ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation: pp-pill-in var(--pp-duration) var(--pp-ease) forwards;
 }
 
 #pinpoint-root .pp-nav-pill.pp-pill-out {
-  animation: pp-pill-out 180ms cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  animation: pp-pill-out var(--pp-duration) var(--pp-ease) forwards;
 }
 
 #pinpoint-root .pp-nav-btn {
@@ -1083,206 +1398,55 @@ html.pp-measuring body * {
   font-variant-numeric: tabular-nums;
 }
 
-/* ── measurement tool ─────────────────────────────────── */
-
-#pinpoint-root .pp-unit-toggle {
-  display: inline-flex;
-  align-items: center;
-  height: var(--pp-button-size);
-  padding: 3px;
-  margin: 0 2px;
-  border-radius: var(--pp-radius-inner);
-  background: var(--pp-bg-soft);
-  box-shadow: inset 0 0 0 1px var(--pp-border);
-  gap: 2px;
-  animation: pp-unit-in 180ms cubic-bezier(0.23, 1, 0.32, 1);
+/* ── scrollbars ─────────────────────────────────────────── */
+/* Every scrollable surface inside our namespace gets the same look:
+   thin (4px), subtle gray thumb, fully transparent track. Scrollbars
+   only appear when content actually overflows — never as decoration. */
+#pinpoint-root .pp-popover,
+#pinpoint-root .pp-menu,
+#pinpoint-root .pp-pop-editor,
+#pinpoint-root .pp-pop-input {
+  scrollbar-width: thin;
+  scrollbar-color: var(--pp-scrollbar-thumb) transparent;
 }
 
-@keyframes pp-unit-in {
-  from { opacity: 0; transform: translateX(-4px); }
-  to   { opacity: 1; transform: translateX(0); }
-}
-
-#pinpoint-root .pp-unit-btn {
-  border: 0;
+#pinpoint-root .pp-popover::-webkit-scrollbar,
+#pinpoint-root .pp-menu::-webkit-scrollbar,
+#pinpoint-root .pp-pop-editor::-webkit-scrollbar,
+#pinpoint-root .pp-pop-input::-webkit-scrollbar {
+  width: 2px;
+  height: 2px;
   background: transparent;
-  color: var(--pp-text-dim);
-  padding: 0 9px;
-  height: calc(var(--pp-button-size) - 6px);
-  border-radius: calc(var(--pp-radius-inner) - 3px);
-  font-size: 11.5px;
-  font-weight: 600;
-  letter-spacing: 0.01em;
-  cursor: pointer !important;
-  outline: none;
-  font-variant-numeric: tabular-nums;
-  transition: background 140ms ease, color 140ms ease, transform 140ms ease;
 }
 
-#pinpoint-root .pp-unit-btn:hover {
-  color: var(--pp-text);
+#pinpoint-root .pp-popover::-webkit-scrollbar-track,
+#pinpoint-root .pp-menu::-webkit-scrollbar-track,
+#pinpoint-root .pp-pop-editor::-webkit-scrollbar-track,
+#pinpoint-root .pp-pop-input::-webkit-scrollbar-track {
+  background: transparent;
+  border: 0;
 }
 
-#pinpoint-root .pp-unit-btn:active {
-  transform: scale(0.95);
+#pinpoint-root .pp-popover::-webkit-scrollbar-thumb,
+#pinpoint-root .pp-menu::-webkit-scrollbar-thumb,
+#pinpoint-root .pp-pop-editor::-webkit-scrollbar-thumb,
+#pinpoint-root .pp-pop-input::-webkit-scrollbar-thumb {
+  background: var(--pp-scrollbar-thumb);
+  border-radius: 999px;
+  border: 0;
+  transition: background var(--pp-duration) var(--pp-ease);
 }
 
-#pinpoint-root .pp-unit-btn.pp-unit-active {
-  background: var(--pp-bg-strong);
-  color: var(--pp-text);
-  box-shadow: inset 0 0 0 1px var(--pp-border);
+#pinpoint-root .pp-popover::-webkit-scrollbar-thumb:hover,
+#pinpoint-root .pp-menu::-webkit-scrollbar-thumb:hover,
+#pinpoint-root .pp-pop-editor::-webkit-scrollbar-thumb:hover,
+#pinpoint-root .pp-pop-input::-webkit-scrollbar-thumb:hover {
+  background: var(--pp-scrollbar-thumb-hover);
 }
 
-#pinpoint-root .pp-measure-layer {
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  z-index: 2147483643;
-}
-
-#pinpoint-root .pp-measure-outline,
-#pinpoint-root .pp-measure-padding,
-#pinpoint-root .pp-measure-margin,
-#pinpoint-root .pp-measure-line,
-#pinpoint-root .pp-measure-projection,
-#pinpoint-root .pp-measure-tick,
-#pinpoint-root .pp-measure-edge,
-#pinpoint-root .pp-measure-size,
-#pinpoint-root .pp-measure-dist,
-#pinpoint-root .pp-measure-pin-dot {
-  position: fixed;
-  pointer-events: none;
-}
-
-#pinpoint-root .pp-measure-padding {
-  background: rgba(147, 196, 125, 0.22);
-}
-
-#pinpoint-root .pp-measure-margin {
-  background: rgba(246, 178, 107, 0.20);
-}
-
-#pinpoint-root .pp-measure-outline {
-  border: 1px solid var(--pp-accent);
-  border-radius: 1px;
-  opacity: 0;
-  animation: pp-measure-fade-in 100ms ease-out forwards;
-}
-
-@keyframes pp-measure-fade-in {
-  to { opacity: 1; }
-}
-
-#pinpoint-root .pp-measure-outline-source {
-  border-width: 1.5px;
-  box-shadow:
-    0 0 0 1px rgba(232, 81, 2, 0.18),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.04);
-}
-
-#pinpoint-root .pp-measure-outline-target {
-  border-color: var(--pp-accent);
-  opacity: 0.85;
-  animation: pp-measure-fade-target 100ms ease-out forwards;
-}
-
-@keyframes pp-measure-fade-target {
-  to { opacity: 0.85; }
-}
-
-#pinpoint-root .pp-measure-pin-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--pp-accent);
-  box-shadow: 0 0 0 1.5px var(--pp-bg-strong);
-}
-
-#pinpoint-root .pp-measure-line {
-  background: var(--pp-accent);
-}
-
-#pinpoint-root .pp-measure-tick {
-  background: var(--pp-accent);
-}
-
-#pinpoint-root .pp-measure-projection-h {
-  height: 1px;
-  background-image: linear-gradient(to right, var(--pp-accent) 50%, transparent 50%);
-  background-size: 5px 1px;
-  opacity: 0.65;
-}
-
-#pinpoint-root .pp-measure-projection-v {
-  width: 1px;
-  background-image: linear-gradient(to bottom, var(--pp-accent) 50%, transparent 50%);
-  background-size: 1px 5px;
-  opacity: 0.65;
-}
-
-#pinpoint-root .pp-measure-edge {
-  transform: translate(-50%, -50%);
-  padding: 1px 5px;
-  border-radius: 4px;
-  background: rgba(0, 0, 0, 0.62);
-  color: #fff;
-  font-size: 10px;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-  font-family: "Geist Mono", "SF Mono", "JetBrains Mono", "Menlo", monospace;
-  line-height: 1.3;
-  letter-spacing: 0.01em;
-}
-
-#pinpoint-root[data-theme="light"] .pp-measure-edge {
-  background: rgba(24, 22, 20, 0.78);
-}
-
-#pinpoint-root .pp-measure-size {
-  transform: translate(-50%, 0);
-  padding: 3px 7px;
-  border-radius: 5px;
-  background: var(--pp-accent);
-  color: #fff;
-  font-size: 10.5px;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-  font-family: "Geist Mono", "SF Mono", "JetBrains Mono", "Menlo", monospace;
-  line-height: 1.2;
-  letter-spacing: 0.01em;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.18);
-}
-
-#pinpoint-root .pp-measure-size[data-role="target"] {
-  background: rgba(232, 81, 2, 0.88);
-}
-
-#pinpoint-root .pp-measure-dist {
-  transform: translate(-50%, -50%);
-  padding: 2px 6px;
-  border-radius: 4px;
-  background: var(--pp-accent);
-  color: #fff;
-  font-size: 10.5px;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-  font-family: "Geist Mono", "SF Mono", "JetBrains Mono", "Menlo", monospace;
-  line-height: 1.2;
-  letter-spacing: 0.01em;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.22);
-}
-
-/* Inner-edge gap labels (parent → child) sit on the page, so use the
-   neutral dark pill style so they don't compete with the accent chip. */
-#pinpoint-root .pp-measure-dist.pp-measure-dist-inner {
-  background: rgba(0, 0, 0, 0.72);
-  font-weight: 600;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
-}
-
-#pinpoint-root[data-theme="light"] .pp-measure-dist.pp-measure-dist-inner {
-  background: rgba(24, 22, 20, 0.82);
+#pinpoint-root .pp-popover::-webkit-scrollbar-corner,
+#pinpoint-root .pp-menu::-webkit-scrollbar-corner,
+#pinpoint-root .pp-pop-editor::-webkit-scrollbar-corner,
+#pinpoint-root .pp-pop-input::-webkit-scrollbar-corner {
+  background: transparent;
 }

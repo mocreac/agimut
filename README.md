@@ -42,19 +42,25 @@ The popup lets you:
 
 ## Export format
 
+Feedback leads on the number line (no `Feedback:` label) so multi-agent previews show the human note first. A marker closes the note, then structural details. URL and viewport trail at the end so they don't dominate the preview.
+
 ```
-URL: https://example.com/page
-
-1.
-   HTML: <li class="flex items-center gap-6 px-4 py-2 text-sm">
+1. Spacing between nav items is inconsistent, should be 16px
+   — end of feedback —
+   HTML: <li role="listitem" class="nav-item">
    Text: "Products"
-   Context: nav
-   Feedback: Spacing between nav items is inconsistent, should be 16px
+   Selector: nav > ul > li:nth-of-type(2)
+   Context: nav#site-nav > ul
+   Near: h1 "Shop"
 
-2.
+2. This line should be more prominent
+   — end of feedback —
    Quote: "Start free for 14 days"
-   Context: main > section
-   Feedback: This line should be more prominent
+   Selector: main > section > p
+   Context: main > section.hero
+   Near: h2 "Get started"
+URL: https://example.com/page
+Viewport: 680px Width (Mobile)
 ```
 
 If a saved target no longer exists, Agimut keeps the comment as an orphan and exports it with `Status: Element not found`.
