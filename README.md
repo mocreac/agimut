@@ -18,6 +18,17 @@ Agimut is a Chrome extension for design review. It lets you pin comments on UI e
 4. Click **Load unpacked** and select the repo directory
 5. Optional: enable **Allow access to file URLs** if you want to annotate local HTML files
 
+## React Grab demo
+
+The repository includes a small React page for testing React Grab alongside Agimut:
+
+1. Load the extension using the manual install steps above
+2. Start a local server from the `demo` directory: `python3 -m http.server 8000`
+3. Open [http://127.0.0.1:8000/react-grab.html](http://127.0.0.1:8000/react-grab.html)
+4. Hover an element and press **Cmd/Ctrl+C** to copy its React Grab context
+
+The demo loads React, ReactDOM, and React Grab from their public CDNs. It is intentionally separate from Agimut so the two tools can be tested on the same page.
+
 
 ## Why
 
@@ -26,6 +37,8 @@ Instead of describing UI issues in words and hoping the agent finds the right el
 Agimut is designed for AI-assisted workflows. Tools like Claude Code, Cursor, and Codex can read the structured output and immediately understand what you're pointing at. Each annotation gives them:
 
 - **CSS selectors** that map directly to elements in your source code
+- **Component localisation on every page** from landmarks, roles, labels, Web Components, test hooks, and meaningful classes
+- **React / React Native component paths** as richer metadata when fiber data is available (Pressable, screens, etc.)
 - **Rendered HTML with stable attributes** that work across any framework
 - **Text previews or exact quotes** depending on whether you annotate an element or a text selection
 - **Ancestor context** showing where the target sits in the page structure
@@ -46,17 +59,24 @@ Feedback leads on the number line (no `Feedback:` label) so multi-agent previews
 
 ```
 1. Spacing between nav items is inconsistent, should be 16px
-   — end of feedback —
+   - end of feedback -
    HTML: <li role="listitem" class="nav-item">
    Text: "Products"
+   Component: React: ShopScreen > NavBar > NavItem
+   Component context: navigation "Shop" > list > list item "Products"
    Selector: nav > ul > li:nth-of-type(2)
    Context: nav#site-nav > ul
    Near: h1 "Shop"
 
-2. This line should be more prominent
-   — end of feedback —
+2. Make only this phrase more prominent
+   - end of feedback -
+   Target: text selection (partial quote inside an element)
+   Important: Edit ONLY the quoted substring below. Do not restyle, replace, or rewrite the entire containing element unless the quote is the element's full text.
    Quote: "Start free for 14 days"
-   Selector: main > section > p
+   Quote context: "...hero copy. [Start free for 14 days] then upgrade."
+   Quote offsets: characters 12-34 of 58 in the containing element
+   Containing HTML: <p class="hero-sub">
+   Containing element: main > section > p
    Context: main > section.hero
    Near: h2 "Get started"
 URL: https://example.com/page
@@ -100,13 +120,16 @@ Keyboard navigation is enabled by default. Toggle it in the in-page menu (click 
 
 This lets you select a card container vs. the text inside it, which matters for precise design review.
 
-## Current version (v1.5)
+## Current version (v1.7)
 
+- deferred mount so Next.js / React hydration is not disturbed
+- per-domain disable persists until re-enabled in the popup
+- React / React Native fiber-aware targeting and Component export lines
+- DOM-derived component localisation for pages without framework metadata
 - text selection annotations
 - per-page persistence with route-aware restore
 - orphan handling when saved targets disappear
 - floating annotation navigator
-- orange comment badges with white text
 - site-level popup controls for enable/disable, dev-only mode, theme, and toolbar position
 
 ## License

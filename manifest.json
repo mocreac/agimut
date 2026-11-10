@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Agimut",
-  "version": "1.6",
+  "version": "1.10",
   "description": "Design review annotations for any web page",
   "icons": {
     "16": "icons/icon16.png",
@@ -23,6 +23,13 @@
       "js": ["content.js"],
       "css": ["content.css"],
       "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["private/*"],
+      "matches": ["http://*/*", "https://*/*", "file:///*"],
+      "use_dynamic_url": true
     }
   ],
   "browser_specific_settings": {

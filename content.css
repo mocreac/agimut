@@ -35,7 +35,8 @@
   left: 0;
   width: 0;
   height: 0;
-  z-index: 2147483640;
+  z-index: 2147483647 !important;
+  isolation: isolate;
   pointer-events: none;
 }
 
@@ -110,7 +111,7 @@ html.pp-commenting body * {
   background: var(--pp-accent-soft);
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05);
   pointer-events: none;
-  z-index: 2147483641;
+  z-index: 2147483641 !important;
   opacity: 0;
   filter: blur(var(--pp-blur-amount-sm));
   transition-property: opacity, filter, top, left, width, height;
@@ -139,11 +140,11 @@ html.pp-commenting body * {
 }
 
 #pinpoint-root .pp-highlight-layer {
-  z-index: 2147483642;
+  z-index: 2147483642 !important;
 }
 
 #pinpoint-root .pp-pin-layer {
-  z-index: 2147483643;
+  z-index: 2147483643 !important;
 }
 
 #pinpoint-root .pp-target-highlight {
@@ -162,7 +163,7 @@ html.pp-commenting body * {
   background: rgba(232, 81, 2, 0.14);
 }
 
-/* Locked variant — a target that's part of a pending multi-select batch.
+/* Locked variant - a target that's part of a pending multi-select batch.
    Stronger accent and a dashed inner edge so it reads as "held" instead of
    merely "hovered" alongside the selection overlay. */
 #pinpoint-root .pp-target-highlight-locked {
@@ -195,7 +196,7 @@ html.pp-commenting body * {
   overflow: hidden;
   text-overflow: ellipsis;
   pointer-events: none;
-  z-index: 2147483644;
+  z-index: 2147483644 !important;
   opacity: 0;
   filter: blur(var(--pp-blur-amount-sm));
   transition-property: opacity, filter;
@@ -224,7 +225,7 @@ html.pp-commenting body * {
   font-weight: 500;
   max-width: 260px;
   pointer-events: none;
-  z-index: 2147483647;
+  z-index: 2147483647 !important;
   opacity: 0;
   transform: translateY(4px);
   filter: blur(var(--pp-blur-amount-sm));
@@ -338,7 +339,7 @@ html.pp-commenting body * {
   border: 1px solid var(--pp-border);
   border-radius: var(--pp-radius-outer);
   background: var(--pp-bg);
-  z-index: 2147483647;
+  z-index: 2147483647 !important;
   box-shadow: var(--pp-shadow);
   pointer-events: auto;
 }
@@ -475,7 +476,7 @@ html.pp-commenting body * {
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 2147483647;
+  z-index: 2147483647 !important;
   box-shadow: var(--pp-shadow);
   pointer-events: auto;
   overflow: visible;
@@ -534,7 +535,7 @@ html.pp-commenting body * {
   overscroll-behavior: contain;
   padding: var(--pp-popover-pad);
   border-radius: calc(var(--pp-radius-inner) + var(--pp-popover-pad));
-  z-index: 2147483646;
+  z-index: 2147483646 !important;
   pointer-events: auto;
   display: flex;
   flex-direction: column;
@@ -620,7 +621,7 @@ html.pp-commenting body * {
   padding-top: 0;
 }
 
-/* Multi-target popover header — replaces the quote block when the popover
+/* Multi-target popover header - replaces the quote block when the popover
    is opened against a pending Shift+click selection of N elements. No
    colored container: the chips themselves carry the visual weight, matching
    the existing reference-chip pattern from the eyedropper flow. */
@@ -639,7 +640,7 @@ html.pp-commenting body * {
 
 /* Cap the chip rail at ~5 rows worth of chips so the editor row is always
    visible without the popover itself needing to scroll. Past that the rail
-   scrolls internally — the popover's existing scrollbar styling applies. */
+   scrolls internally - the popover's existing scrollbar styling applies. */
 #pinpoint-root .pp-pop-multi-chips {
   display: flex;
   flex-wrap: wrap;
@@ -660,7 +661,7 @@ html.pp-commenting body * {
   background: var(--pp-scrollbar-thumb-hover);
 }
 
-/* Chip styling mirrors .pp-ref-chip — the eyedropper-created tags users
+/* Chip styling mirrors .pp-ref-chip - the eyedropper-created tags users
    already recognise from the editor. The trailing × remove button is the
    only multi-specific affordance. */
 #pinpoint-root .pp-multi-chip {
@@ -732,7 +733,7 @@ html.pp-commenting body * {
   padding: 4px 0 4px;
 }
 
-/* Cards stack with their own vertical padding doing the spacing — the old
+/* Cards stack with their own vertical padding doing the spacing - the old
    1px separator added visual noise the user found distracting, especially
    for multi-note annotations where the header actions also repeat. */
 
@@ -814,7 +815,7 @@ html.pp-commenting body * {
 
 /* Header row holding the badge on the left and per-annotation actions on the
    right. Sticky keeps the badge anchored when there are many cards. No own
-   background — the popover already paints var(--pp-bg) + backdrop-blur and
+   background - the popover already paints var(--pp-bg) + backdrop-blur and
    stacking another semi-transparent layer would visibly darken this row. */
 #pinpoint-root .pp-comment-badge-wrap {
   display: flex;
@@ -824,7 +825,7 @@ html.pp-commenting body * {
   padding: 4px 0;
   position: sticky;
   top: 0;
-  z-index: 2;
+  z-index: 2 !important;
 }
 
 /* Adding another note to an existing target: the cards above already show
@@ -836,13 +837,13 @@ html.pp-commenting body * {
 
 /* Subsequent cards for the same annotation reserve the badge's footprint
    so the copy/delete buttons stay right-aligned, but the badge itself is
-   hidden — only the first card displays the number. */
+   hidden - only the first card displays the number. */
 #pinpoint-root .pp-comment-badge.pp-comment-badge-invisible {
   visibility: hidden;
 }
 
 /* Secondary cards keep their header actions invisible until the row is
-   hovered/focused — first card stays "loud", the rest reveal on demand
+   hovered/focused - first card stays "loud", the rest reveal on demand
    so 5+ notes don't read as five identical toolbars stacked. Opacity is
    animated for parity with the other in-popover transitions. */
 #pinpoint-root .pp-comment-card-secondary .pp-comment-header-actions {
@@ -909,7 +910,7 @@ html.pp-commenting body * {
 }
 
 /* When the new-comment section follows existing notes we add just a hair of
-   breathing room — the popover's own gap + the card's bottom padding already
+   breathing room - the popover's own gap + the card's bottom padding already
    provide most of the separation. */
 #pinpoint-root .pp-comment-card + .pp-new-comment {
   padding-top: 2px;
@@ -1044,6 +1045,76 @@ html.pp-commenting body * {
   white-space: nowrap;
 }
 
+#pinpoint-root .pp-image-chip {
+  position: relative;
+  display: inline-flex;
+  align-items: flex-start;
+  max-width: 100%;
+  margin: 6px 2px;
+  padding: 0;
+  border-radius: 10px;
+  overflow: hidden;
+  vertical-align: middle;
+  background: rgba(255, 255, 255, 0.06);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.14);
+  cursor: default;
+}
+
+#pinpoint-root[data-theme="light"] .pp-image-chip {
+  background: rgba(24, 22, 20, 0.04);
+  box-shadow: inset 0 0 0 1px rgba(24, 22, 20, 0.12);
+}
+
+#pinpoint-root .pp-image-chip-thumb {
+  display: block;
+  max-width: min(220px, 100%);
+  max-height: 120px;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  vertical-align: middle;
+}
+
+#pinpoint-root .pp-image-chip-remove {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 7px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10, 10, 10, 0.72);
+  color: #fff;
+  opacity: 0;
+  pointer-events: none;
+  transition-property: opacity, background;
+  transition-duration: var(--pp-duration);
+  transition-timing-function: var(--pp-ease);
+}
+
+#pinpoint-root .pp-image-chip:hover .pp-image-chip-remove,
+#pinpoint-root .pp-image-chip:focus-within .pp-image-chip-remove {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+#pinpoint-root .pp-image-chip-remove:hover {
+  background: rgba(232, 81, 2, 0.92);
+}
+
+#pinpoint-root .pp-image-chip-remove svg {
+  width: 12px;
+  height: 12px;
+}
+
+#pinpoint-root .pp-pop-editor.pp-editor-drop {
+  box-shadow: inset 0 0 0 1px rgba(232, 81, 2, 0.55);
+  background: rgba(232, 81, 2, 0.08);
+}
+
 /* Neutralize host-page focus styling (outlines/rings) leaking onto the
    extension UI. Host rules can use !important, so we must too. We only
    reset the outline here to avoid clobbering intentional box-shadows. */
@@ -1110,7 +1181,7 @@ html.pp-commenting body * {
   align-items: center;
   gap: 10px;
   /* Right padding matches the vertical padding so the trailing key cap has
-     equal breathing room on top/right/bottom — the cap looks centered in
+     equal breathing room on top/right/bottom - the cap looks centered in
      its end of the pill instead of floating. Left keeps a bit more room
      so the label doesn't crowd the rounded edge. */
   padding: 8px 8px 8px 12px;
@@ -1118,7 +1189,7 @@ html.pp-commenting body * {
   border-radius: 18px;
   white-space: nowrap;
   pointer-events: none;
-  z-index: 2147483647;
+  z-index: 2147483647 !important;
   opacity: 0;
   transform: translateY(4px);
   filter: blur(var(--pp-blur-amount-sm));
@@ -1174,7 +1245,7 @@ html.pp-commenting body * {
   max-height: calc(100vh - 120px);
   padding: 14px;
   border-radius: var(--pp-radius-outer);
-  z-index: 2147483647;
+  z-index: 2147483647 !important;
   pointer-events: auto;
   overflow-y: auto;
   animation: pp-pop-in var(--pp-duration) var(--pp-ease);
@@ -1278,7 +1349,7 @@ html.pp-commenting body * {
   padding: 10px 14px;
   font-size: 13px;
   font-weight: 600;
-  z-index: 2147483647;
+  z-index: 2147483647 !important;
   pointer-events: none;
   white-space: nowrap;
 }
@@ -1347,7 +1418,7 @@ html.pp-commenting body * {
   /* outer (16) = inner .pp-nav-btn (12) + padding (4) */
   border-radius: 16px;
   background: var(--pp-bg);
-  z-index: 2147483646;
+  z-index: 2147483646 !important;
   pointer-events: auto;
 }
 
@@ -1401,7 +1472,7 @@ html.pp-commenting body * {
 /* ── scrollbars ─────────────────────────────────────────── */
 /* Every scrollable surface inside our namespace gets the same look:
    thin (4px), subtle gray thumb, fully transparent track. Scrollbars
-   only appear when content actually overflows — never as decoration. */
+   only appear when content actually overflows - never as decoration. */
 #pinpoint-root .pp-popover,
 #pinpoint-root .pp-menu,
 #pinpoint-root .pp-pop-editor,
@@ -1449,4 +1520,40 @@ html.pp-commenting body * {
 #pinpoint-root .pp-pop-editor::-webkit-scrollbar-corner,
 #pinpoint-root .pp-pop-input::-webkit-scrollbar-corner {
   background: transparent;
+}
+
+/* ── pen tool ───────────────────────────────────────────── */
+#pinpoint-root .pp-pen-layer {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  overflow: visible;
+  pointer-events: none;
+  z-index: 2147483641 !important;
+}
+
+#pinpoint-root .pp-pen-layer path {
+  fill: none;
+  stroke-width: 4px;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+#pinpoint-root .pp-pen-surface {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483641 !important;
+  cursor: crosshair;
+  touch-action: none;
+  pointer-events: auto;
+}
+
+#pinpoint-root .pp-pen-layer.pp-hidden,
+#pinpoint-root .pp-pen-surface.pp-hidden {
+  display: none;
+}
+
+#pinpoint-root .pp-pen-surface.pp-pen-erasing {
+  cursor: cell;
 }

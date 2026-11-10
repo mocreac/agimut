@@ -13,3 +13,6 @@ _prod/
 *.swp
 *.swo
 *~
+
+# Local, unshipped plugin (kept in a separate private repo)
+private/

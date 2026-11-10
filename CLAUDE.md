@@ -43,4 +43,6 @@ There is no build, bundler, or package manager. Edit files and reload the extens
 - SPA support: monkey-patches `history.pushState`/`replaceState`, watches popstate/hash/pageshow/visibility changes, and polls for route changes
 - Keyboard shortcuts: C (toggle comment mode), A (copy), Shift+A (copy & clear), XXX (delete all), Z (undo), Esc (close), arrows/Tab/Enter for keyboard targeting
 
-**CSS isolation:** All styles use `#pinpoint-root` selector prefix. Max z-index (`2147483640`+) ensures UI stays above host page content.
+**CSS isolation:** All styles use `#pinpoint-root` selector prefix. Max z-index (`2147483647 !important`) with `isolation: isolate` keeps UI above host page content.
+
+**Hydration safety:** The UI tree stays detached until after React hydration, then mounts onto `document.body`. Disabled domains never mount.

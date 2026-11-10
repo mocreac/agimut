@@ -202,6 +202,11 @@
     });
   });
 
+  // Optional local plugin settings (private/popup.js, never shipped).
+  import('./private/popup.js').then(function (mod) {
+    if (mod && typeof mod.default === 'function') mod.default(document);
+  }, function () { /* no plugin installed */ });
+
   externalLinks.forEach(function (button) {
     button.addEventListener('click', function () {
       openExternalUrl(button.getAttribute('data-url'));
