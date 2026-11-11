@@ -232,6 +232,7 @@
     undo:        'M224,128a96,96,0,0,1-94.71,96H128A95.38,95.38,0,0,1,62.1,197.8a8,8,0,0,1,11-11.63A80,80,0,1,0,71.43,71.39a3.07,3.07,0,0,1-.26.25L44.59,96H72a8,8,0,0,1,0,16H24a8,8,0,0,1-8-8V56a8,8,0,0,1,16,0V85.8L60.25,60A96,96,0,0,1,224,128Z',
     sliders:     'M64,105V40a8,8,0,0,0-16,0v65a32,32,0,0,0,0,62v49a8,8,0,0,0,16,0V167a32,32,0,0,0,0-62Zm-8,47a16,16,0,1,1,16-16A16,16,0,0,1,56,152Zm80-95V40a8,8,0,0,0-16,0V57a32,32,0,0,0,0,62v97a8,8,0,0,0,16,0V119a32,32,0,0,0,0-62Zm-8,47a16,16,0,1,1,16-16A16,16,0,0,1,128,104Zm104,64a32.06,32.06,0,0,0-24-31V40a8,8,0,0,0-16,0v97a32,32,0,0,0,0,62v17a8,8,0,0,0,16,0V199A32.06,32.06,0,0,0,232,168Zm-32,16a16,16,0,1,1,16-16A16,16,0,0,1,200,184Z',
     eyedropper:  'M224,67.3a35.79,35.79,0,0,0-11.26-25.66c-14-13.28-36.72-12.78-50.62,1.13L142.8,62.2a24,24,0,0,0-33.14.77l-9,9a16,16,0,0,0,0,22.64l2,2.06-51,51a39.75,39.75,0,0,0-10.53,38l-8,18.41A13.68,13.68,0,0,0,36,219.3a15.92,15.92,0,0,0,17.71,3.35L71.23,215a39.89,39.89,0,0,0,37.06-10.75l51-51,2.06,2.06a16,16,0,0,0,22.62,0l9-9a24,24,0,0,0,.74-33.18l19.75-19.87A35.75,35.75,0,0,0,224,67.3ZM97,193a24,24,0,0,1-24,6,8,8,0,0,0-5.55.31l-18.1,7.91L57,189.41a8,8,0,0,0,.25-5.75A23.88,23.88,0,0,1,63,159l51-51,33.94,34ZM202.13,82l-25.37,25.52a8,8,0,0,0,0,11.3l4.89,4.89a8,8,0,0,1,0,11.32l-9,9L112,83.26l9-9a8,8,0,0,1,11.31,0l4.89,4.89a8,8,0,0,0,11.33,0l24.94-25.09c7.81-7.82,20.5-8.18,28.29-.81a20,20,0,0,1,.39,28.7Z',
+    image:       'M216,40H40A16,16,0,0,0,24,56V200a16,16,0,0,0,16,16H216a16,16,0,0,0,16-16V56A16,16,0,0,0,216,40Zm0,16V158.75l-26.07-26.06a16,16,0,0,0-22.63,0l-20,20-44-44a16,16,0,0,0-22.62,0L40,149.37V56ZM40,172l52-52,80,80H40Zm176,28H194.63l-36-36,20-20L216,181.38V200ZM144,100a12,12,0,1,1,12,12A12,12,0,0,1,144,100Z',
     pencilSimple:'M227.31,73.37,182.63,28.68a16,16,0,0,0-22.63,0L36.69,152A15.86,15.86,0,0,0,32,163.31V208a16,16,0,0,0,16,16H92.69A15.86,15.86,0,0,0,104,219.31L227.31,96a16,16,0,0,0,0-22.63ZM92.69,208H48V163.31l88-88L180.69,120ZM192,108.68,147.31,64l24-24L216,84.68Z',
   };
 
@@ -258,6 +259,7 @@
         '<line x1="52.28" y1="160" x2="141.25" y2="160"/>' +
       '</svg>',
     pencilPin: ph(P.pencilSimple, 14),
+    image:    ph(P.image, 18),
   };
 
   var logoSvg = '<svg width="22" height="17" viewBox="83 68 378 289" fill="none" stroke="currentColor" stroke-width="40" stroke-linecap="round" stroke-linejoin="round"><path d="M113.279 198.073L225.785 327.192V98.2M225.785 327.192L331.751 122.192H430.911"/></svg>';
@@ -2115,6 +2117,42 @@
     });
   }
 
+  // Attach button for the note composer: opens the file picker and drops
+  // each chosen image at the caret, the same way paste and drop do.
+  function createImageButton(editor, onChange) {
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'pp-pop-btn pp-image-picker';
+    btn.title = 'Attach image';
+    btn.setAttribute('aria-label', 'Attach image');
+    btn.innerHTML = ico.image;
+    var file = document.createElement('input');
+    file.type = 'file';
+    file.accept = 'image/*';
+    file.multiple = true;
+    file.hidden = true;
+    file.addEventListener('change', function () {
+      var files = Array.prototype.slice.call(file.files || []).filter(function (f) {
+        return f.type.indexOf('image/') === 0;
+      });
+      file.value = '';
+      files.forEach(function (f) { insertImageFromBlob(editor, f, onChange); });
+    });
+    btn.addEventListener('mousedown', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      saveEditorRange(editor);
+    });
+    btn.addEventListener('click', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      saveEditorRange(editor);
+      file.click();
+    });
+    btn.appendChild(file);
+    return btn;
+  }
+
   function serializeEditor(editor) {
     pruneEditorImages(editor);
     var refs = [];
@@ -2568,6 +2606,7 @@
       }
     });
     btnRow.appendChild(refBtn);
+    btnRow.appendChild(createImageButton(input, sync));
 
     var submit = document.createElement('button');
     submit.className = 'pp-pop-btn pp-pop-submit';
@@ -2841,6 +2880,7 @@
       }
     });
     btnRow.appendChild(refBtn);
+    btnRow.appendChild(createImageButton(input, sync));
 
     var submit = document.createElement('button');
     submit.className = 'pp-pop-btn pp-pop-submit';
@@ -4607,14 +4647,14 @@
     images.forEach(function (img, index) { imageIndex[img.id] = index + 1; });
 
     lines.push('   Inline images:');
-    lines.push('      The <image:n> tokens appear inside the feedback text at the exact sentence position where the user pasted each screenshot. Images are copied on the clipboard as real image data (not base64 text). Read the words before/after each token for intent.');
+    lines.push('      The <image:n> tokens appear inside the feedback text at the exact sentence position where the user attached each image. Images are copied on the clipboard as real image data (not base64 text). Read the words before/after each token for intent.');
     images.forEach(function (img, index) {
       if (!img) return;
       var n = index + 1;
       var dims = (img.width && img.height) ? (' (' + img.width + 'x' + img.height + ')') : '';
       var anchor = getInlineAnchorContext(ann, 'image', img.id, refIndex, imageIndex);
-      lines.push('      <image:' + n + '> pasted screenshot' + dims);
-      lines.push('         Role: visual evidence pasted inline in the feedback');
+      lines.push('      <image:' + n + '> attached image' + dims);
+      lines.push('         Role: visual reference attached inline in the feedback');
       if (anchor.found) {
         if (anchor.before) {
           lines.push('         Appears in feedback after: ' + quoteExportValue(anchor.before));

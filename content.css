@@ -372,6 +372,7 @@ html.pp-commenting body * {
 #pinpoint-root .pp-pop-copy:hover,
 #pinpoint-root .pp-pop-ref:hover,
 #pinpoint-root .pp-ref-picker:hover,
+#pinpoint-root .pp-image-picker:hover,
 #pinpoint-root .pp-pop-delete:hover {
   /* Glass hover: translucent fill plus a faint inner edge so the squircle
      reads as a lifted panel, not a flat block. */
@@ -1556,4 +1557,10 @@ html.pp-commenting body * {
 
 #pinpoint-root .pp-pen-surface.pp-pen-erasing {
   cursor: cell;
+}
+
+/* Attach-image button sits beside the reference picker; the auto margin
+   keeps the pair on the left and the submit button on the right. */
+#pinpoint-root .pp-pop-btns .pp-image-picker {
+  margin-right: auto;
 }
